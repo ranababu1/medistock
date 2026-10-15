@@ -1,0 +1,67 @@
+<UserControl x:Class="MediStock.Desktop.Views.PlaceholderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MediStock.Desktop.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:PlaceholderViewModel}"
+             d:DesignHeight="620"
+             d:DesignWidth="1040"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,20,24,24">
+        <StackPanel MaxWidth="860" HorizontalAlignment="Left">
+            <TextBlock Text="{Binding Title}" Style="{StaticResource PageTitleText}" />
+            <TextBlock Text="{Binding Description}" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+
+            <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock Text="{Binding Headline}" Style="{StaticResource SectionHeaderText}" TextWrapping="Wrap" />
+
+                    <Border Style="{StaticResource Divider}" Margin="0,14,0,14" />
+
+                    <TextBlock Text="Planned scope" Style="{StaticResource FieldLabelText}" />
+                    <ItemsControl ItemsSource="{Binding PlannedScope}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Ellipse Grid.Column="0"
+                                             Width="5"
+                                             Height="5"
+                                             Margin="4,7,10,0"
+                                             VerticalAlignment="Top"
+                                             Fill="{StaticResource AccentBrush}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding}"
+                                               Style="{StaticResource BodyText}"
+                                               TextWrapping="Wrap" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Border Style="{StaticResource Divider}" Margin="0,18,0,14" />
+
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               TextWrapping="Wrap"
+                               Text="Correctness and traceability come before convenience, so screens are delivered milestone by milestone. The catalogue and dashboard are available today; the shell reports each screen's target milestone rather than hiding it." />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <Button Content="Open medicines"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding GoToMedicinesCommand}" />
+                        <Button Content="Back to dashboard"
+                                Style="{StaticResource SecondaryButton}"
+                                Margin="8,0,0,0"
+                                Command="{Binding GoToDashboardCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

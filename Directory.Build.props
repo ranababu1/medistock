@@ -1,0 +1,20 @@
+<Project>
+
+  <PropertyGroup>
+	<LangVersion>latest</LangVersion>
+	<Nullable>enable</Nullable>
+	<ImplicitUsings>enable</ImplicitUsings>
+	<NeutralLanguage>en</NeutralLanguage>
+
+	<Product>MediStock</Product>
+	<Company>MediStock</Company>
+	<Version>0.1.0</Version>
+	<Authors>MediStock</Authors>
+
+	<!-- Deterministic, reproducible-ish builds; keep warnings visible but not fatal. -->
+	<EnableNETAnalyzers>true</EnableNETAnalyzers>
+	<AnalysisLevel>latest</AnalysisLevel>
+	<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,196 @@
+using MediStock.Domain.Common;
+
+namespace MediStock.Domain.Inventory;
+
+/// <summary>
+/// A single received batch of one medicine. Batch is the unit of stock because batch number and
+/// expiry date drive what may legally and safely be dispensed.
+/// </summary>
+/// <remarks>
+/// <see cref="QuantityOnHand"/> is a cached balance kept for query performance. Every change to it
+/// must be accompanied by a <see cref="StockMovement"/> row; <c>InventoryReconciler</c> compares the
+/// two.
+/// </remarks>
+public class MedicineBatch
+{
+    public const int BatchNumberMaxLength = 64;
+    public const int InvoiceNumberMaxLength = 64;
+
+    /// <summary>Required by Entity Framework Core.</summary>
+    private MedicineBatch()
+    {
+    }
+
+    public int Id { get; private set; }
+
+    public int MedicineId { get; private set; }
+
+    public Catalogue.Medicine Medicine { get; private set; } = null!;
+
+    public string BatchNumber { get; private set; } = string.Empty;
+
+    /// <summary>Last day the batch may be dispensed. See <see cref="ExpiryPolicy"/>.</summary>
+    public DateOnly ExpiryDate { get; private set; }
+
+    public decimal QuantityReceived { get; private set; }
+
+    /// <summary>Cached balance. Reconcilable against <see cref="StockMovement"/> history.</summary>
+    public decimal QuantityOnHand { get; private set; }
+
+    /// <summary>Cost per unit paid to the supplier.</summary>
+    public decimal PurchaseCost { get; private set; }
+
+    /// <summary>Default selling price per unit for this batch.</summary>
+    public decimal SellingPrice { get; private set; }
+
+    public int? SupplierId { get; private set; }
+
+    public Suppliers.Supplier? Supplier { get; private set; }
+
+    public string? SupplierInvoiceNumber { get; private set; }
+
+    /// <summary>Local business date the goods were received into stock.</summary>
+    public DateOnly ReceivedOn { get; private set; }
+
+    public DateTimeOffset ReceivedAtUtc { get; private set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; private set; }
+
+    public BatchStatus Status { get; private set; } = BatchStatus.Active;
+
+    /// <summary>Populated when the batch is written off or recalled.</summary>
+    public string? StatusReason { get; private set; }
+
+    public bool IsSellableOn(DateOnly businessDate)
+        => ExpiryPolicy.IsSellable(Status, ExpiryDate, QuantityOnHand, businessDate);
+
+    public static MedicineBatch Receive(
+        int medicineId,
+        string batchNumber,
+        DateOnly expiryDate,
+        decimal quantity,
+        decimal purchaseCost,
+        decimal sellingPrice,
+        DateOnly receivedOn,
+        int? supplierId = null,
+        string? supplierInvoiceNumber = null,
+        DateTimeOffset? nowUtc = null)
+    {
+        if (medicineId <= 0)
+        {
+            throw new DomainValidationException("A batch must reference an existing medicine.");
+        }
+
+        var quantityReceived = Guard.Positive(quantity, "Quantity received");
+        if (expiryDate <= receivedOn)
+        {
+            throw new DomainValidationException(
+                $"Batch '{batchNumber}' expires on {expiryDate:yyyy-MM-dd}, which is not after the receipt date {receivedOn:yyyy-MM-dd}. Already-expired stock cannot be received.");
+        }
+
+        var timestamp = nowUtc ?? DateTimeOffset.UtcNow;
+
+        return new MedicineBatch
+        {
+            MedicineId = medicineId,
+            BatchNumber = Guard.Required(batchNumber, BatchNumberMaxLength, "Batch number"),
+            ExpiryDate = expiryDate,
+            QuantityReceived = quantityReceived,
+            QuantityOnHand = quantityReceived,
+            PurchaseCost = Guard.NonNegative(Money.Round(purchaseCost), "Purchase cost"),
+            SellingPrice = Guard.NonNegative(Money.Round(sellingPrice), "Selling price"),
+            SupplierId = supplierId,
+            SupplierInvoiceNumber = Guard.Optional(supplierInvoiceNumber, InvoiceNumberMaxLength, "Supplier invoice number"),
+            ReceivedOn = receivedOn,
+            ReceivedAtUtc = timestamp,
+            UpdatedAtUtc = timestamp,
+            Status = BatchStatus.Active,
+        };
+    }
+
+    /// <summary>Applies an inward movement. Used for receipts, returns re-stocked, and gains.</summary>
+    public void IncreaseQuantity(decimal quantity, DateTimeOffset? nowUtc = null)
+    {
+        Guard.Positive(quantity, "Quantity");
+        EnsureMovable(BatchStatus.Recalled, "recalled");
+        EnsureMovable(BatchStatus.WrittenOff, "written off");
+
+        QuantityOnHand += quantity;
+        QuantityReceived += quantity;
+        if (Status == BatchStatus.Depleted)
+        {
+            Status = BatchStatus.Active;
+        }
+
+        UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Applies an outward movement. Throws rather than allowing a negative balance, so an
+    /// accidental double-sale cannot silently corrupt inventory.
+    /// </summary>
+    public void DecreaseQuantity(decimal quantity, DateTimeOffset? nowUtc = null)
+    {
+        Guard.Positive(quantity, "Quantity");
+        EnsureMovable(BatchStatus.Recalled, "recalled");
+        EnsureMovable(BatchStatus.WrittenOff, "written off");
+
+        if (quantity > QuantityOnHand)
+        {
+            throw new InsufficientStockException(BatchNumber, quantity, QuantityOnHand);
+        }
+
+        QuantityOnHand -= quantity;
+        if (QuantityOnHand == 0m)
+        {
+            Status = BatchStatus.Depleted;
+        }
+
+        UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>Removes the remaining balance from sellable stock with a recorded justification.</summary>
+    public void WriteOff(string reason, BatchStatus status = BatchStatus.WrittenOff, DateTimeOffset? nowUtc = null)
+    {
+        if (status is not (BatchStatus.WrittenOff or BatchStatus.Expired or BatchStatus.Recalled))
+        {
+            throw new DomainValidationException($"'{status}' is not a valid write-off status.");
+        }
+
+        if (QuantityOnHand == 0m)
+        {
+            throw new DomainValidationException($"Batch '{BatchNumber}' has no quantity left to write off.");
+        }
+
+        StatusReason = Guard.Required(reason, StockMovement.ReasonMaxLength, "Reason");
+        Status = status;
+        UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>Recomputes the cached status for a batch that is simply past its expiry date.</summary>
+    public bool RefreshExpiryStatus(DateOnly businessDate, DateTimeOffset? nowUtc = null)
+    {
+        if (Status != BatchStatus.Active || QuantityOnHand == 0m)
+        {
+            return false;
+        }
+
+        if (!ExpiryPolicy.IsExpired(ExpiryDate, businessDate))
+        {
+            return false;
+        }
+
+        Status = BatchStatus.Expired;
+        StatusReason = $"Expired on {ExpiryDate:yyyy-MM-dd}.";
+        UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
+        return true;
+    }
+
+    private void EnsureMovable(BatchStatus blocked, string description)
+    {
+        if (Status == blocked)
+        {
+            throw new DomainValidationException($"Batch '{BatchNumber}' is {description} and cannot be moved.");
+        }
+    }
+}

@@ -1,0 +1,48 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.tlog
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.DotSettings.user
+
+# Test and coverage output
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+coverage*.info
+TestResults/
+
+# Local, machine-specific configuration. Never commit real connection strings
+# or credentials; keep them in these files only.
+appsettings.Local.json
+appsettings.*.Local.json
+*.local.json
+
+# Local development database files (attachdb workflows)
+*.mdf
+*.ldf
+*.ndf
+
+# Backups produced by the application or the backup workflow
+*.bak
+*.trn
+
+# OS cruft
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/

@@ -1,0 +1,241 @@
+<UserControl x:Class="MediStock.Desktop.Views.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MediStock.Desktop.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:DashboardViewModel}"
+             d:DesignHeight="620"
+             d:DesignWidth="1040"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="24,20,24,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Dashboard" Style="{StaticResource PageTitleText}" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0">
+                    <Run Text="Figures below are for the business date " />
+                    <Run Text="{Binding BusinessDateText, Mode=OneWay}" FontWeight="SemiBold" />
+                    <Run Text="." />
+                </TextBlock>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Refresh"
+                        Style="{StaticResource SecondaryButton}"
+                        Command="{Binding RefreshCommand}"
+                        Margin="0,0,10,0" />
+                <Button Content="New sale"
+                        Style="{StaticResource PrimaryButton}"
+                        Command="{Binding OpenNewSaleCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="24,0,24,24">
+            <StackPanel>
+
+                <Border Style="{StaticResource Card}"
+                        Margin="0,0,0,14"
+                        Padding="14,10"
+                        Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}"
+                        Background="{StaticResource DangerSoftBrush}"
+                        BorderBrush="#F2C9C9">
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="{StaticResource DangerBrush}"
+                               TextWrapping="Wrap" />
+                </Border>
+
+                <!-- Headline metrics -->
+                <ItemsControl ItemsSource="{Binding SnapshotMetrics}" Focusable="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource MetricCard}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Label}" Style="{StaticResource CaptionText}" />
+                                    <TextBlock Text="{Binding Value}" Style="{StaticResource MetricValueText}" Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding Hint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Alerts -->
+                <Grid Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource Card}" Margin="0,0,14,0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Low stock" Style="{StaticResource SectionHeaderText}" />
+                                <Button Grid.Column="1"
+                                        Content="Open inventory"
+                                        Style="{StaticResource LinkButton}"
+                                        Command="{Binding OpenInventoryCommand}" />
+                            </Grid>
+
+                            <Grid Grid.Row="1" MinHeight="180">
+                                <DataGrid ItemsSource="{Binding LowStock}"
+                                          Style="{StaticResource ThemedDataGrid}"
+                                          MaxHeight="260">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Medicine" Binding="{Binding DisplayName}" Width="*" />
+                                        <DataGridTextColumn Header="Strength" Binding="{Binding Strength}" Width="Auto" />
+                                        <DataGridTextColumn Header="On hand" Binding="{Binding QuantityOnHand, StringFormat={}{0:N0}}" Width="Auto" />
+                                        <DataGridTextColumn Header="Reorder at" Binding="{Binding ReorderThreshold, StringFormat={}{0:N0}}" Width="Auto" />
+                                        <DataGridTextColumn Header="Batches" Binding="{Binding BatchCount}" Width="Auto" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <Border Background="{StaticResource SurfaceBrush}"
+                                        CornerRadius="6"
+                                        Padding="16"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Center"
+                                        Visibility="{Binding HasNoLowStock, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="No medicine is at or below its reorder threshold."
+                                               Style="{StaticResource CaptionText}"
+                                               TextWrapping="Wrap" />
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Column="1" Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Expiry watch" Style="{StaticResource SectionHeaderText}" />
+                                    <TextBlock Style="{StaticResource CaptionText}">
+                                        <Run Text="Expiring " /><Run Text="{Binding NearExpiryWindowText, Mode=OneWay}" /><Run Text=" or already expired." />
+                                    </TextBlock>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Content="Open reports"
+                                        Style="{StaticResource LinkButton}"
+                                        VerticalAlignment="Top"
+                                        Command="{Binding OpenReportsCommand}" />
+                            </Grid>
+
+                            <Grid Grid.Row="1" MinHeight="180">
+                                <DataGrid ItemsSource="{Binding ExpiringBatches}"
+                                          Style="{StaticResource ThemedDataGrid}"
+                                          MaxHeight="260">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="*" />
+                                        <DataGridTextColumn Header="Batch" Binding="{Binding BatchNumber}" Width="Auto" />
+                                        <DataGridTextColumn Header="Expires" Binding="{Binding ExpiryDate, StringFormat=dd MMM yyyy}" Width="Auto" />
+                                        <DataGridTextColumn Header="Days" Binding="{Binding DaysUntilExpiry}" Width="Auto" />
+                                        <DataGridTextColumn Header="Qty" Binding="{Binding QuantityOnHand, StringFormat={}{0:N0}}" Width="Auto" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <Border Background="{StaticResource SurfaceBrush}"
+                                        CornerRadius="6"
+                                        Padding="16"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Center"
+                                        Visibility="{Binding HasNoExpiringBatches, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="No batch is approaching or past its expiry date."
+                                               Style="{StaticResource CaptionText}"
+                                               TextWrapping="Wrap" />
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Connection status and quick actions -->
+                <Grid Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource Card}" Margin="0,0,14,0">
+                        <StackPanel>
+                            <TextBlock Text="Database connection" Style="{StaticResource SectionHeaderText}" />
+
+                            <TextBlock Style="{StaticResource BodyText}" Margin="0,8,0,0" TextWrapping="Wrap"
+                                       Text="{Binding DatabaseStatusSummary}" />
+
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <TextBlock Style="{StaticResource CaptionText}">
+                                    <Run Text="Provider: " /><Run Text="{Binding Health.Provider, Mode=OneWay, FallbackValue=unknown}" />
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource CaptionText}" Margin="16,0,0,0">
+                                    <Run Text="Database: " /><Run Text="{Binding Health.DatabaseName, Mode=OneWay, FallbackValue=not connected}" />
+                                </TextBlock>
+                            </StackPanel>
+
+                            <TextBlock Style="{StaticResource CaptionText}" Margin="0,6,0,0" TextWrapping="Wrap"
+                                       Text="{Binding Health.Error, Mode=OneWay}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="1" Style="{StaticResource Card}" MinWidth="320">
+                        <StackPanel>
+                            <TextBlock Text="Quick actions" Style="{StaticResource SectionHeaderText}" />
+                            <WrapPanel Margin="0,10,0,0">
+                                <Button Content="Medicines" Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenMedicinesCommand}" />
+                                <Button Content="Receive purchase" Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenPurchasesCommand}" />
+                                <Button Content="Reports" Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenReportsCommand}" />
+                                <Button Content="Inventory" Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenInventoryCommand}" />
+                            </WrapPanel>
+
+                            <Border Style="{StaticResource Divider}" Margin="0,6,0,10" />
+
+                            <TextBlock Text="Planned for later milestones: batch-level stock detail, purchase receiving, point of sale, returns, and report exports."
+                                       Style="{StaticResource CaptionText}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
