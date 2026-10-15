@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using MediStock.Application.Configuration;
@@ -116,6 +116,18 @@ public partial class App : System.Windows.Application
             _logger?.LogWarning("The database is not reachable yet: {Error}", report.Error);
             return;
         }
+
+        // Logged on success as well as failure, so a support log always records whether the
+        // application reached its database rather than leaving it to be inferred from the absence
+        // of an error.
+        _logger?.LogInformation(
+            "Database reachable: {Database} via {Provider}, {Pending} pending migration(s), probe took {Elapsed}.",
+            report.DatabaseName,
+            report.Provider,
+            report.PendingMigrations.Count,
+            report.Elapsed);
+
+        _logger?.LogDebug("SQL Server reports: {Version}.", report.ServerVersion);
 
         if (options.ApplyMigrationsOnStartup && report.HasPendingMigrations)
         {
