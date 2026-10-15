@@ -50,6 +50,13 @@ public sealed partial class MedicineEditorViewModel : ObservableObject
     [ObservableProperty]
     private decimal? reorderThreshold;
 
+    /// <summary>
+    /// Tax charged on this medicine. Copied onto each invoice line at the moment of sale, so changing
+    /// it here never alters an invoice that has already been issued.
+    /// </summary>
+    [ObservableProperty]
+    private decimal taxRatePercent;
+
     [ObservableProperty]
     private bool isActive = true;
 
@@ -78,6 +85,7 @@ public sealed partial class MedicineEditorViewModel : ObservableObject
         Barcode = null;
         PackDescription = null;
         ReorderThreshold = null;
+        TaxRatePercent = 0m;
         IsActive = true;
         ValidationMessage = null;
     }
@@ -101,6 +109,7 @@ public sealed partial class MedicineEditorViewModel : ObservableObject
         Barcode = dto.Barcode;
         PackDescription = dto.PackDescription;
         ReorderThreshold = dto.ReorderThreshold;
+        TaxRatePercent = dto.TaxRatePercent;
         IsActive = dto.IsActive;
         ValidationMessage = null;
     }
@@ -116,6 +125,7 @@ public sealed partial class MedicineEditorViewModel : ObservableObject
         Barcode = Barcode?.Trim(),
         PackDescription = PackDescription?.Trim(),
         ReorderThreshold = ReorderThreshold,
+        TaxRatePercent = TaxRatePercent,
     };
 
     /// <summary>Returns the first domain rule violation, or null when the draft is acceptable.</summary>

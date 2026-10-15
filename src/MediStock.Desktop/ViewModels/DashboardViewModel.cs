@@ -6,6 +6,7 @@ using MediStock.Application.Common;
 using MediStock.Application.Configuration;
 using MediStock.Application.Dashboard;
 using MediStock.Application.Diagnostics;
+using MediStock.Application.Sales;
 using MediStock.Desktop.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -13,12 +14,16 @@ using Microsoft.Extensions.Options;
 namespace MediStock.Desktop.ViewModels;
 
 /// <summary>
-/// Dashboard page. Every figure comes from <see cref="IDashboardQueries"/> for the current
-/// business date, and the database status panel reports the Milestone 0 acceptance check.
+/// Dashboard page. Every figure comes from <see cref="IDashboardQueries"/> or <see cref="ISalesQueries"/> for
+/// the current business date, and the database status panel reports the Milestone 0 acceptance check.
 /// </summary>
 public sealed partial class DashboardViewModel : ViewModelBase
 {
+    private const int RecentSaleCount = 8;
+
     private readonly IDashboardQueries _queries;
+    private readonly ISalesQueries _sales;
+    private readonly ISaleCatalog _salesCatalog;
     private readonly IDatabaseHealthCheck _healthCheck;
     private readonly IClock _clock;
     private readonly INavigationService _navigation;
@@ -27,6 +32,8 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
     public DashboardViewModel(
         IDashboardQueries queries,
+        ISalesQueries sales,
+        ISaleCatalog salesCatalog,
         IDatabaseHealthCheck healthCheck,
         IClock clock,
         INavigationService navigation,
@@ -35,6 +42,8 @@ public sealed partial class DashboardViewModel : ViewModelBase
         : base("Dashboard")
     {
         _queries = queries;
+        _sales = sales;
+        _salesCatalog = salesCatalog;
         _healthCheck = healthCheck;
         _clock = clock;
         _navigation = navigation;
@@ -42,14 +51,21 @@ public sealed partial class DashboardViewModel : ViewModelBase
         _nearExpiryDays = options.Value.NearExpiryDays;
 
         Snapshot = DashboardSnapshot.Empty(clock.BusinessDate);
+        Takings = DailySalesSummary.Empty(clock.BusinessDate);
     }
 
     public ObservableCollection<LowStockItem> LowStock { get; } = [];
 
     public ObservableCollection<ExpiringBatch> ExpiringBatches { get; } = [];
 
+    public ObservableCollection<SaleDto> RecentSales { get; } = [];
+
     [ObservableProperty]
     private DashboardSnapshot snapshot;
+
+    /// <summary>Today's trading, kept separate from <see cref="Snapshot"/> so each figure has one owner.</summary>
+    [ObservableProperty]
+    private DailySalesSummary takings;
 
     [ObservableProperty]
     private DatabaseHealthReport? health;
@@ -62,6 +78,9 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool hasNoExpiringBatches;
+
+    [ObservableProperty]
+    private bool hasNoRecentSales;
 
     public string BusinessDateText =>
         Snapshot.BusinessDate.ToString("dddd, dd MMMM yyyy", CultureInfo.CurrentCulture);
@@ -76,6 +95,36 @@ public sealed partial class DashboardViewModel : ViewModelBase
         Snapshot.NonSellableInventoryValueAtCost.ToString("N2", CultureInfo.CurrentCulture);
 
     public string NearExpiryWindowText => $"within {_nearExpiryDays} days";
+
+    public string TakingsTotalText => Takings.Total.ToString("N2", CultureInfo.CurrentCulture);
+
+    public string TakingsMarginText => Takings.Margin.ToString("N2", CultureInfo.CurrentCulture);
+
+    /// <summary>
+    /// Today's trading. The margin card states its own formula because "margin" is the figure an operator
+    /// is most likely to misread as profit.
+    /// </summary>
+    public IReadOnlyList<DashboardMetric> SalesMetrics =>
+    [
+        new(
+            "Takings today",
+            TakingsTotalText,
+            $"Sum of the invoice totals of {Takings.SaleCount:N0} completed sale(s) on " +
+            $"{Snapshot.BusinessDate:yyyy-MM-dd}. Cancelled sales are excluded."),
+        new(
+            "Transactions today",
+            Takings.SaleCount.ToString("N0", CultureInfo.CurrentCulture),
+            $"{Takings.UnitsSold:N0} unit(s) dispensed across {Takings.SaleCount:N0} invoice(s)."),
+        new(
+            "Gross margin today",
+            TakingsMarginText,
+            "Takings less tax and less the purchase cost of the batches actually sold. Excludes overheads, " +
+            "shrinkage and returns, so it is an estimate, not profit."),
+        new(
+            "Tax collected today",
+            Takings.TaxTotal.ToString("N2", CultureInfo.CurrentCulture),
+            "Sum of the tax stored on today's invoice lines. Not a tax filing figure."),
+    ];
 
     /// <summary>
     /// Headline cards. Each hint states where the number came from so an operator can trace a
@@ -169,6 +218,21 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
             HasNoExpiringBatches = ExpiringBatches.Count == 0;
 
+            Takings = await _sales.GetDailySummaryAsync(Snapshot.BusinessDate, cancellationToken)
+                .ConfigureAwait(true);
+
+            var recent = await _salesCatalog
+                .SearchAsync(new SaleQuery { Take = RecentSaleCount }, cancellationToken)
+                .ConfigureAwait(true);
+
+            RecentSales.Clear();
+            foreach (var sale in recent)
+            {
+                RecentSales.Add(sale);
+            }
+
+            HasNoRecentSales = RecentSales.Count == 0;
+
             Health = await _healthCheck.CheckAsync(cancellationToken).ConfigureAwait(true);
             HasLoaded = true;
         }
@@ -198,11 +262,22 @@ public sealed partial class DashboardViewModel : ViewModelBase
     [RelayCommand]
     private void OpenPurchases() => _navigation.NavigateTo(NavigationRoutes.Purchases);
 
+    [RelayCommand]
+    private void OpenSalesHistory() => _navigation.NavigateTo(NavigationRoutes.SalesHistory);
+
     partial void OnSnapshotChanged(DashboardSnapshot value)
     {
         OnPropertyChanged(nameof(BusinessDateText));
         OnPropertyChanged(nameof(InventoryValueText));
         OnPropertyChanged(nameof(SnapshotMetrics));
+        OnPropertyChanged(nameof(SalesMetrics));
+    }
+
+    partial void OnTakingsChanged(DailySalesSummary value)
+    {
+        OnPropertyChanged(nameof(TakingsTotalText));
+        OnPropertyChanged(nameof(TakingsMarginText));
+        OnPropertyChanged(nameof(SalesMetrics));
     }
 
     partial void OnHealthChanged(DatabaseHealthReport? value) => OnPropertyChanged(nameof(DatabaseStatusSummary));

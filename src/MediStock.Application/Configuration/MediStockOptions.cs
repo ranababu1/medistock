@@ -22,4 +22,10 @@ public sealed class MediStockOptions
 
     /// <summary>When true development sample data is inserted if the database is empty.</summary>
     public bool SeedDevelopmentData { get; set; }
+
+    /// <summary>
+    /// Folder that exported receipts are written to. A relative path is resolved against the user's
+    /// documents folder, so the default does not depend on where the executable was started from.
+    /// </summary>
+    public string ReceiptFolder { get; set; } = @"MediStock\Receipts";
 }

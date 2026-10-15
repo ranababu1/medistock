@@ -17,7 +17,7 @@ convenience second, advanced features third**.
 | **0** | Environment, solution, DI, logging, application shell, database connectivity | ✅ Complete |
 | **1** | Database schema, medicine catalogue, dashboard read models | ✅ Complete |
 | **2** | Suppliers, purchasing and receiving, batch creation, stock movements UI | ✅ Complete |
-| 3 | Point of sale | ⏳ Not started |
+| **3** | Point of sale: cart, FEFO allocation, pricing and tax, transactional checkout, invoices and receipts | ✅ Complete |
 | 4 | Returns, expiry and reports | ⏳ Not started |
 | 5 | Users, permissions, audit trail, backup/restore | ⏳ Not started |
 | 6 | Packaging and release | ⏳ Not started |
@@ -37,8 +37,14 @@ What works today:
   cannot both take the stock in — the loser is told to reload.
 - Inventory & batches lists stock with sellable/non-sellable states, expiry filters and a full stock
   movement history, and reports whether every cached balance still equals its ledger total.
+- The counter (**New Sale**) searches or scans medicines into a cart, shows eligible batches with a
+  preferred-batch override, applies the catalogue tax rate, takes one or more payments, and refuses a
+  sale outright when stock is short or expired. Allocating, pricing, numbering the invoice, reducing
+  batches, writing the movements and taking the money happen in one transaction, so a failed sale
+  leaves nothing behind. Sales history searches invoices by number, customer or medicine, reprints a
+  receipt, and shows the day's takings split by payment method.
 
-Billing, returns and reporting are **not** implemented yet.
+Returns, cancellations, reporting and CSV/PDF export are **not** implemented yet.
 
 ---
 
@@ -92,7 +98,7 @@ The override is checked first and wins over configuration.
 Set-Location C:\Users\Imran\source\repos\MediStock
 
 dotnet build MediStock.slnx                       # compile everything
-dotnet test  MediStock.slnx                       # run all 217 tests
+dotnet test  MediStock.slnx                       # run all 230 tests
 dotnet run   --project src\MediStock.Desktop      # launch the application
 ```
 
@@ -109,9 +115,9 @@ dotnet publish src\MediStock.Desktop -c Release -r win-x64 --self-contained true
 
 | Project | What it covers | Tests |
 |---|---|---|
-| `MediStock.Domain.Tests` | Money rounding, guards, medicine rules, expiry policy, FEFO ordering, batch balances, movements, purchase lifecycle | 148 |
+| `MediStock.Domain.Tests` | Money rounding, guards, medicine rules, expiry policy, FEFO ordering, batch balances, movements, purchase lifecycle, sale pricing and settlement | 148 |
 | `MediStock.Application.Tests` | DTO/draft normalisation, `OperationResult` semantics | 18 |
-| `MediStock.IntegrationTests` | Migrations, schema constraints, catalogue, supplier and receiving workflows, concurrent receives and reversals against real SQL Server | 51 |
+| `MediStock.IntegrationTests` | Migrations, schema constraints, catalogue, supplier, receiving and checkout workflows, including two tills racing for the same last units and six racing for invoice numbers, against real SQL Server | 64 |
 
 Integration tests need a reachable SQL Server. They create **`MediStock_Test`** in
 `(localdb)\MSSQLLocalDB`, migrate it, and drop it again on teardown — never production or personal
@@ -138,6 +144,7 @@ Settings under the `MediStock` section:
 | `NearExpiryDays` | `90` | Window for the near-expiry list |
 | `ApplyMigrationsOnStartup` | `true` | Apply pending EF Core migrations at launch |
 | `SeedDevelopmentData` | `false` (true in Development) | Insert fictional sample data when the catalogue is empty |
+| `ReceiptFolder` | `MediStock\Receipts` | Where exported receipts are written. A relative path is resolved against the user's documents folder |
 
 Application logs are written to `%LOCALAPPDATA%\MediStock\logs\medistock-yyyyMMdd.log`.
 
@@ -157,7 +164,7 @@ Schema changes are applied **only** through versioned migrations — never by ha
 |---|---|
 | `scripts\dev\start-localdb.ps1` | Starts `MSSQLLocalDB` and proves it answers a query. Run this first on a fresh machine. |
 | `scripts\dev\reset-database.ps1` | Drops and rebuilds the development database from migrations alone. Use after a failed startup leaves partial data behind. |
-| `scripts\dev\check-reconciliation.ps1` | Verifies every cached batch balance equals its ledger sum, and prints row counts and the inventory value at cost. |
+| `scripts\dev\check-reconciliation.ps1` | Checks that every cached batch balance equals its ledger sum, that each invoice's batch allocations match its sale movements, and that each invoice's lines add up to its stored total. Then prints row counts and the inventory value at cost. |
 
 ```powershell
 .\scripts\dev\start-localdb.ps1
@@ -165,16 +172,19 @@ Schema changes are applied **only** through versioned migrations — never by ha
 .\scripts\dev\check-reconciliation.ps1
 ```
 
-A healthy seeded development database reports **10 medicines, 4 suppliers, 10 batches, 19 stock
-movements**, an inventory value at cost of about **₹2,074.10**, and
-`OK - every cached balance equals its ledger sum.`
+A healthy seeded development database reports **10 medicines, 4 suppliers, 8 purchases, 13 purchase
+lines, 11 batches, 18 stock movements, 3 invoices, 6 sale lines, 6 allocations and 4 payments**, an
+inventory value at cost of **₹7,363.70**, takings of **₹489.02** on record, and `OK` for all three
+reconciliation checks.
 
 ### Development seed data
 
 Development startup inserts fictional data only when the medicine catalogue is empty: 10 medicines,
-4 suppliers, 10 batches and 19 stock movements, sized to exercise low-stock, near-expiry and
-multiple-batch-per-medicine scenarios. Seed data is fictional and clearly separated from real
-pharmacy data; keep it that way.
+4 suppliers, 8 purchases, 11 batches and 18 stock movements. Three of those purchases are then rung up
+as real invoices through the real checkout workflow, which is why the seeded database already has
+sales, payments, batch allocations and the movements they produced. The sample sizes are chosen to
+exercise low-stock, near-expiry and multiple-batch-per-medicine scenarios. Seed data is fictional and
+clearly separated from real pharmacy data; keep it that way.
 
 ---
 

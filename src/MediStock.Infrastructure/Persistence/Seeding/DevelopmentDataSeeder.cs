@@ -1,7 +1,10 @@
 using MediStock.Application.Common;
+using MediStock.Application.Sales;
 using MediStock.Domain.Catalogue;
+using MediStock.Domain.Common;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Purchasing;
+using MediStock.Domain.Sales;
 using MediStock.Domain.Suppliers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -18,15 +21,18 @@ public sealed class DevelopmentDataSeeder
     private const string Operator = "Development seed";
 
     private readonly IDbContextFactory<MediStockDbContext> _factory;
+    private readonly ISaleCatalog _sales;
     private readonly IClock _clock;
     private readonly ILogger<DevelopmentDataSeeder> _logger;
 
     public DevelopmentDataSeeder(
         IDbContextFactory<MediStockDbContext> factory,
+        ISaleCatalog sales,
         IClock clock,
         ILogger<DevelopmentDataSeeder> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _sales = sales ?? throw new ArgumentNullException(nameof(sales));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -100,9 +106,9 @@ public sealed class DevelopmentDataSeeder
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         var movements = new List<StockMovement>();
-        var batches = new List<(MedicineBatch Batch, SampleBatch Seed)>();
+        var receivedBatchCount = 0;
 
-        foreach (var (purchase, seeds) in deliveries)
+        foreach (var purchase in deliveries.Keys)
         {
             var received = await ReceivePurchaseAsync(
                     db,
@@ -112,31 +118,7 @@ public sealed class DevelopmentDataSeeder
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            for (var index = 0; index < received.Count; index++)
-            {
-                batches.Add((received[index], seeds[index]));
-            }
-        }
-
-        // Sample sales, recorded as movement history only. Point of sale arrives in a later milestone.
-        foreach (var (batch, seed) in batches)
-        {
-            if (seed.SoldQuantity <= 0m)
-            {
-                continue;
-            }
-
-            batch.DecreaseQuantity(seed.SoldQuantity, nowUtc);
-            movements.Add(StockMovement.Record(
-                batch.MedicineId,
-                batch.Id,
-                StockMovementType.Sale,
-                -seed.SoldQuantity,
-                batch.QuantityOnHand,
-                businessDate,
-                Operator,
-                reference: "SAMPLE-SALE",
-                nowUtc: nowUtc));
+            receivedBatchCount += received.Count;
         }
 
         // One received purchase is then reversed, so the correction path and its ledger entries are
@@ -189,17 +171,143 @@ public sealed class DevelopmentDataSeeder
         db.StockMovements.AddRange(movements);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        // The purchases are committed before any sale is rung up: a checkout opens its own context and
+        // its own transaction, and it can only sell stock that is already on the shelf.
+        var invoices = await SeedSalesAsync(medicines, cancellationToken).ConfigureAwait(false);
+
+        var movementCount = await db.StockMovements
+            .CountAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         _logger.LogInformation(
             "Seeded {Medicines} sample medicines, {Suppliers} sample suppliers, {Purchases} sample purchases, " +
-            "{Batches} batches, and {Movements} stock movements.",
+            "{Batches} batches, {Invoices} sample invoices, and {Movements} stock movements.",
             medicines.Count,
             suppliers.Count,
             deliveries.Count + 2,
-            batches.Count + reversalBatches.Count,
-            movements.Count);
+            receivedBatchCount + reversalBatches.Count,
+            invoices.Count,
+            movementCount);
 
-        return movements.Count;
+        return movementCount;
     }
+
+    /// <summary>
+    /// Rings up a handful of sample baskets through the real point of sale rather than inserting
+    /// invoices by hand, so the dashboard, the sales history and the stock ledger agree because they
+    /// were written by the same code, not because the sample data was made to match.
+    /// </summary>
+    /// <remarks>
+    /// Each basket is priced first and then settled for exactly the quoted total, which is the order
+    /// the till works in and the only order that can settle an invoice to the paisa.
+    /// </remarks>
+    private async Task<IReadOnlyList<string>> SeedSalesAsync(
+        IReadOnlyList<Medicine> medicines,
+        CancellationToken cancellationToken)
+    {
+        var invoices = new List<string>();
+
+        foreach (var basket in SampleBaskets())
+        {
+            var draft = new SaleDraft
+            {
+                SoldBy = Operator,
+                CustomerName = basket.CustomerName,
+                CustomerPhone = basket.CustomerPhone,
+                Lines =
+                [
+                    .. basket.Lines.Select(line => new SaleLineDraft
+                    {
+                        MedicineId = medicines[line.MedicineIndex].Id,
+                        Quantity = line.Quantity,
+                        DiscountAmount = line.DiscountAmount,
+                    }),
+                ],
+            };
+
+            var quote = await _sales.QuoteAsync(draft, cancellationToken).ConfigureAwait(false);
+
+            if (!quote.IsCheckoutReady)
+            {
+                throw new InvalidOperationException(
+                    "A sample basket could not be priced, so the sample data was left untouched: "
+                    + string.Join(" ", quote.Blockers));
+            }
+
+            var payments = new List<PaymentDraft>();
+            if (basket.MixedSettlement)
+            {
+                // The cash part is rounded and the electronic part takes the remainder, so the two
+                // always add up to the invoice total exactly.
+                var cash = Money.Round(quote.Total / 2m);
+                payments.Add(new PaymentDraft { Method = PaymentMethod.Cash, Amount = cash });
+                payments.Add(new PaymentDraft
+                {
+                    Method = PaymentMethod.Upi,
+                    Amount = quote.Total - cash,
+                    Reference = "UPI-2210-8891",
+                });
+            }
+            else
+            {
+                payments.Add(new PaymentDraft
+                {
+                    Method = basket.Method,
+                    Amount = quote.Total,
+                    Reference = basket.Reference,
+                });
+            }
+
+            var checkout = await _sales
+                .CheckoutAsync(draft with { Payments = payments }, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!checkout.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"A sample sale could not be completed: {checkout.Message}");
+            }
+
+            invoices.Add($"#{checkout.Value}");
+        }
+
+        return invoices;
+    }
+
+    /// <summary>One sample basket, described by catalogue position rather than by identity.</summary>
+    private sealed record SampleSale(
+        string? CustomerName,
+        string? CustomerPhone,
+        PaymentMethod Method,
+        string? Reference,
+        bool MixedSettlement,
+        IReadOnlyList<SampleSaleLine> Lines);
+
+    /// <summary>One line of a sample basket.</summary>
+    private sealed record SampleSaleLine(int MedicineIndex, decimal Quantity, decimal DiscountAmount = 0m);
+
+    /// <summary>
+    /// Sample takings for today. One basket deliberately spans two batches of the same medicine, so
+    /// first-expiry-first-out allocation is visible in the sample data rather than only in tests.
+    /// </summary>
+    private static List<SampleSale> SampleBaskets() =>
+    [
+        new(null, null, PaymentMethod.Cash, null, false,
+        [
+            new(0, 50m),
+            new(2, 4m, 5.00m),
+        ]),
+        new("Reshma Iyer", "+91 99000 41122", PaymentMethod.Card, "CARD-8841", false,
+        [
+            new(4, 30m),
+            new(7, 20m),
+        ]),
+        new("Samuel Fernandes", "+91 98452 71230", PaymentMethod.Cash, null, true,
+        [
+            new(1, 6m),
+            new(3, 10m),
+        ]),
+    ];
 
     /// <summary>
     /// Confirms a draft purchase and puts its lines into stock. Batches are saved before their receipt
@@ -264,21 +372,20 @@ public sealed class DevelopmentDataSeeder
         decimal PurchaseCost,
         decimal SellingPrice,
         int ReceivedDaysAgo,
-        string InvoiceNumber,
-        decimal SoldQuantity);
+        string InvoiceNumber);
 
     private static List<SampleBatch> SampleBatches() =>
     [
-        new(0, 0, "PCM2411", 540, 120m, 1.10m, 2.00m, 45, "INV-2025-0417", 30m),
-        new(1, 0, "AMX2409", 300, 80m, 4.20m, 8.50m, 45, "INV-2025-0417", 12m),
-        new(2, 1, "CTZ2510", 20, 200m, 0.65m, 1.50m, 60, "ML-88231", 200m),
-        new(3, 1, "PAN2503", 365, 60m, 3.10m, 6.00m, 60, "ML-88231", 0m),
-        new(4, 2, "MET2501", 420, 150m, 1.45m, 2.80m, 50, "CP-5512", 40m),
-        new(5, 2, "AML2512", 700, 90m, 1.05m, 2.20m, 50, "CP-5512", 90m),
-        new(6, 3, "SAL2502", -10, 15m, 145.00m, 220.00m, 120, "EDH-3001", 15m),
-        new(7, 3, "ORS2408", 240, 300m, 4.00m, 7.50m, 120, "EDH-3001", 300m),
-        new(8, 0, "CSY2509", 150, 40m, 42.00m, 68.00m, 15, "INV-2025-0455", 8m),
-        new(9, 1, "DIC2511", 30, 25m, 58.00m, 92.00m, 10, "ML-88420", 25m),
+        new(0, 0, "PCM2411", 540, 120m, 1.10m, 2.00m, 45, "INV-2025-0417"),
+        new(1, 0, "AMX2409", 300, 80m, 4.20m, 8.50m, 45, "INV-2025-0417"),
+        new(2, 1, "CTZ2510", 20, 200m, 0.65m, 1.50m, 60, "ML-88231"),
+        new(3, 1, "PAN2503", 365, 60m, 3.10m, 6.00m, 60, "ML-88231"),
+        new(4, 2, "MET2501", 420, 150m, 1.45m, 2.80m, 50, "CP-5512"),
+        new(5, 2, "AML2512", 700, 90m, 1.05m, 2.20m, 50, "CP-5512"),
+        new(6, 3, "SAL2502", -10, 15m, 145.00m, 220.00m, 120, "EDH-3001"),
+        new(7, 3, "ORS2408", 240, 300m, 4.00m, 7.50m, 120, "EDH-3001"),
+        new(8, 0, "CSY2509", 150, 40m, 42.00m, 68.00m, 15, "INV-2025-0455"),
+        new(9, 1, "DIC2511", 30, 25m, 58.00m, 92.00m, 10, "ML-88420"),
     ];
 
     private static List<Supplier> CreateSuppliers(DateTimeOffset nowUtc) =>
@@ -339,18 +446,20 @@ public sealed class DevelopmentDataSeeder
 
     private static List<Medicine> CreateMedicines(DateTimeOffset nowUtc)
     {
+        // The tax rate is per medicine and is copied onto each invoice line when it is sold, so the
+        // sample catalogue carries the slabs the sample invoices were written with.
         var medicines = new List<Medicine>
         {
-            Medicine.Create("Paracetamol", DosageForm.Tablet, brandName: "FeverKare (sample)", genericName: "Paracetamol", strength: "500 mg", manufacturer: "Northline Pharma (sample)", barcode: "8900000000011", packDescription: "Strip of 10 tablets", reorderThreshold: 50m, nowUtc: nowUtc),
-            Medicine.Create("Amoxicillin", DosageForm.Capsule, brandName: "AmoxiCare (sample)", genericName: "Amoxicillin", strength: "250 mg", manufacturer: "Northline Pharma (sample)", barcode: "8900000000028", packDescription: "Strip of 10 capsules", reorderThreshold: 30m, nowUtc: nowUtc),
-            Medicine.Create("Cetirizine", DosageForm.Tablet, brandName: "AllerFree (sample)", genericName: "Cetirizine Hydrochloride", strength: "10 mg", manufacturer: "Bluehill Labs (sample)", barcode: "8900000000035", packDescription: "Strip of 10 tablets", reorderThreshold: 40m, nowUtc: nowUtc),
-            Medicine.Create("Pantoprazole", DosageForm.Tablet, brandName: "GastroEase (sample)", genericName: "Pantoprazole Sodium", strength: "40 mg", manufacturer: "Bluehill Labs (sample)", barcode: "8900000000042", packDescription: "Strip of 10 tablets", reorderThreshold: 25m, nowUtc: nowUtc),
-            Medicine.Create("Metformin", DosageForm.Tablet, brandName: "GlucoNorm (sample)", genericName: "Metformin Hydrochloride", strength: "500 mg", manufacturer: "Vertex Generics (sample)", barcode: "8900000000059", packDescription: "Strip of 15 tablets", reorderThreshold: 60m, nowUtc: nowUtc),
-            Medicine.Create("Amlodipine", DosageForm.Tablet, brandName: "CardioCalm (sample)", genericName: "Amlodipine Besylate", strength: "5 mg", manufacturer: "Vertex Generics (sample)", barcode: "8900000000066", packDescription: "Strip of 10 tablets", reorderThreshold: 30m, nowUtc: nowUtc),
-            Medicine.Create("Salbutamol Inhaler", DosageForm.Inhaler, brandName: "BreatheWell (sample)", genericName: "Salbutamol Sulphate", strength: "100 mcg", manufacturer: "AeroMed Devices (sample)", barcode: "8900000000073", packDescription: "200 dose canister", reorderThreshold: 5m, nowUtc: nowUtc),
-            Medicine.Create("Oral Rehydration Salts", DosageForm.Sachet, brandName: "Rehydra (sample)", genericName: "Oral Rehydration Salts", strength: "21.8 g", manufacturer: "Vertex Generics (sample)", barcode: "8900000000080", packDescription: "Box of 10 sachets", reorderThreshold: 40m, nowUtc: nowUtc),
-            Medicine.Create("Dextromethorphan Cough Syrup", DosageForm.Syrup, brandName: "CalmCough (sample)", genericName: "Dextromethorphan Hydrobromide", strength: "10 mg/5 ml", manufacturer: "Bluehill Labs (sample)", barcode: "8900000000097", packDescription: "100 ml bottle", reorderThreshold: 10m, nowUtc: nowUtc),
-            Medicine.Create("Diclofenac Gel", DosageForm.Gel, brandName: "Relievo (sample)", genericName: "Diclofenac Diethylamine", strength: "1% w/w", manufacturer: "AeroMed Devices (sample)", barcode: "8900000000103", packDescription: "30 g tube", reorderThreshold: 10m, nowUtc: nowUtc),
+            Medicine.Create("Paracetamol", DosageForm.Tablet, brandName: "FeverKare (sample)", genericName: "Paracetamol", strength: "500 mg", manufacturer: "Northline Pharma (sample)", barcode: "8900000000011", packDescription: "Strip of 10 tablets", reorderThreshold: 50m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Amoxicillin", DosageForm.Capsule, brandName: "AmoxiCare (sample)", genericName: "Amoxicillin", strength: "250 mg", manufacturer: "Northline Pharma (sample)", barcode: "8900000000028", packDescription: "Strip of 10 capsules", reorderThreshold: 30m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Cetirizine", DosageForm.Tablet, brandName: "AllerFree (sample)", genericName: "Cetirizine Hydrochloride", strength: "10 mg", manufacturer: "Bluehill Labs (sample)", barcode: "8900000000035", packDescription: "Strip of 10 tablets", reorderThreshold: 40m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Pantoprazole", DosageForm.Tablet, brandName: "GastroEase (sample)", genericName: "Pantoprazole Sodium", strength: "40 mg", manufacturer: "Bluehill Labs (sample)", barcode: "8900000000042", packDescription: "Strip of 10 tablets", reorderThreshold: 25m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Metformin", DosageForm.Tablet, brandName: "GlucoNorm (sample)", genericName: "Metformin Hydrochloride", strength: "500 mg", manufacturer: "Vertex Generics (sample)", barcode: "8900000000059", packDescription: "Strip of 15 tablets", reorderThreshold: 60m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Amlodipine", DosageForm.Tablet, brandName: "CardioCalm (sample)", genericName: "Amlodipine Besylate", strength: "5 mg", manufacturer: "Vertex Generics (sample)", barcode: "8900000000066", packDescription: "Strip of 10 tablets", reorderThreshold: 30m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Salbutamol Inhaler", DosageForm.Inhaler, brandName: "BreatheWell (sample)", genericName: "Salbutamol Sulphate", strength: "100 mcg", manufacturer: "AeroMed Devices (sample)", barcode: "8900000000073", packDescription: "200 dose canister", reorderThreshold: 5m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Oral Rehydration Salts", DosageForm.Sachet, brandName: "Rehydra (sample)", genericName: "Oral Rehydration Salts", strength: "21.8 g", manufacturer: "Vertex Generics (sample)", barcode: "8900000000080", packDescription: "Box of 10 sachets", reorderThreshold: 40m, taxRatePercent: 5m, nowUtc: nowUtc),
+            Medicine.Create("Dextromethorphan Cough Syrup", DosageForm.Syrup, brandName: "CalmCough (sample)", genericName: "Dextromethorphan Hydrobromide", strength: "10 mg/5 ml", manufacturer: "Bluehill Labs (sample)", barcode: "8900000000097", packDescription: "100 ml bottle", reorderThreshold: 10m, taxRatePercent: 12m, nowUtc: nowUtc),
+            Medicine.Create("Diclofenac Gel", DosageForm.Gel, brandName: "Relievo (sample)", genericName: "Diclofenac Diethylamine", strength: "1% w/w", manufacturer: "AeroMed Devices (sample)", barcode: "8900000000103", packDescription: "30 g tube", reorderThreshold: 10m, taxRatePercent: 18m, nowUtc: nowUtc),
         };
 
         // Demonstrates that inactive catalogue entries survive without being deleted.

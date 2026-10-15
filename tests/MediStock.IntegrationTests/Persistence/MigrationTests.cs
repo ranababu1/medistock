@@ -80,10 +80,15 @@ public class MigrationTests
         Assert.Equal(
             new[]
             {
+                "InvoiceSequences",
                 "MedicineBatches",
                 "Medicines",
+                "Payments",
                 "PurchaseLines",
                 "Purchases",
+                "SaleLineBatchAllocations",
+                "SaleLines",
+                "Sales",
                 "StockMovements",
                 "Suppliers",
                 "__EFMigrationsHistory",

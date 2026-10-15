@@ -44,8 +44,8 @@ public sealed partial class ShellViewModel : ViewModelBase
         NavigationItems = new ObservableCollection<NavigationItem>
         {
             new(NavigationRoutes.Dashboard, "DB", "Dashboard", "Today at a glance"),
-            new(NavigationRoutes.NewSale, "NS", "New Sale", "Point of sale and billing", isPlanned: true),
-            new(NavigationRoutes.SalesHistory, "SH", "Sales History", "Completed invoices", isPlanned: true),
+            new(NavigationRoutes.NewSale, "NS", "New Sale", "Point of sale and billing"),
+            new(NavigationRoutes.SalesHistory, "SH", "Sales History", "Completed invoices"),
             new(NavigationRoutes.Medicines, "MD", "Medicines", "Catalogue and pricing defaults"),
             new(NavigationRoutes.Inventory, "BN", "Inventory & Batches", "Batch stock and expiry"),
             new(NavigationRoutes.Purchases, "PU", "Purchases", "Supplier invoices and receiving"),
@@ -183,13 +183,13 @@ public sealed partial class ShellViewModel : ViewModelBase
         NavigationRoutes.Suppliers => _services.GetRequiredService<SuppliersViewModel>(),
         NavigationRoutes.Purchases => _services.GetRequiredService<PurchasesViewModel>(),
         NavigationRoutes.Inventory => _services.GetRequiredService<InventoryViewModel>(),
+        NavigationRoutes.NewSale => _services.GetRequiredService<NewSaleViewModel>(),
+        NavigationRoutes.SalesHistory => _services.GetRequiredService<SalesHistoryViewModel>(),
         _ => new PlaceholderViewModel(item, DescribeMilestone(item.RouteKey), _navigation),
     };
 
     private static string DescribeMilestone(string routeKey) => routeKey switch
     {
-        NavigationRoutes.NewSale => "Milestone 3 — Point of sale",
-        NavigationRoutes.SalesHistory => "Milestone 3 — Point of sale",
         NavigationRoutes.Returns => "Milestone 4 — Returns, expiry, and reports",
         NavigationRoutes.Reports => "Milestone 4 — Returns, expiry, and reports",
         NavigationRoutes.Settings => "Milestone 5 — Users, security, and operations",

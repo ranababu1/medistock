@@ -29,6 +29,9 @@ public sealed record MedicineDraft
 
     public decimal? ReorderThreshold { get; init; }
 
+    /// <summary>Rate applied at the point of sale, as a percentage. Zero means untaxed.</summary>
+    public decimal TaxRatePercent { get; init; }
+
     public static MedicineDraft FromDto(MedicineDto dto)
     {
         ArgumentNullException.ThrowIfNull(dto);
@@ -44,6 +47,7 @@ public sealed record MedicineDraft
             Barcode = dto.Barcode,
             PackDescription = dto.PackDescription,
             ReorderThreshold = dto.ReorderThreshold,
+            TaxRatePercent = dto.TaxRatePercent,
         };
     }
 
@@ -61,7 +65,8 @@ public sealed record MedicineDraft
                 Manufacturer,
                 Barcode,
                 PackDescription,
-                ReorderThreshold);
+                ReorderThreshold,
+                TaxRatePercent);
 
             return [];
         }
@@ -82,6 +87,7 @@ public sealed record MedicineDraft
         Barcode,
         PackDescription,
         ReorderThreshold,
+        TaxRatePercent,
         nowUtc);
 
     public void ApplyTo(Medicine medicine, DateTimeOffset nowUtc)
@@ -98,6 +104,7 @@ public sealed record MedicineDraft
             Barcode,
             PackDescription,
             ReorderThreshold,
+            TaxRatePercent,
             nowUtc);
     }
 }

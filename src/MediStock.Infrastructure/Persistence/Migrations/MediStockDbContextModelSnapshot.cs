@@ -74,6 +74,10 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<decimal>("TaxRatePercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("datetimeoffset(3)");
 
@@ -93,6 +97,8 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                     b.ToTable("Medicines", null, t =>
                         {
                             t.HasCheckConstraint("CK_Medicines_ReorderThreshold_NonNegative", "[ReorderThreshold] IS NULL OR [ReorderThreshold] >= 0");
+
+                            t.HasCheckConstraint("CK_Medicines_TaxRate_Range", "[TaxRatePercent] >= 0 AND [TaxRatePercent] <= 100");
                         });
                 });
 
@@ -132,6 +138,11 @@ namespace MediStock.Infrastructure.Persistence.Migrations
 
                     b.Property<DateOnly>("ReceivedOn")
                         .HasColumnType("date");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<decimal>("SellingPrice")
                         .HasPrecision(18, 2)
@@ -389,6 +400,279 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MediStock.Domain.Sales.InvoiceSequence", b =>
+                {
+                    b.Property<string>("SequenceKey")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<long>("NextNumber")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.HasKey("SequenceKey");
+
+                    b.ToTable("InvoiceSequences", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_InvoiceSequences_NextNumber_NonNegative", "[NextNumber] >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.Payment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("Method")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("PaidAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("SaleId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SaleId", "Method")
+                        .HasDatabaseName("IX_Payments_SaleId_Method");
+
+                    b.ToTable("Payments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "[Amount] > 0");
+
+                            t.HasCheckConstraint("CK_Payments_Method_Valid", "[Method] BETWEEN 1 AND 4");
+                        });
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.Sale", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateOnly>("BusinessDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("CostTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<string>("CustomerName")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("CustomerPhone")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<decimal>("DiscountTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTimeOffset>("SoldAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<string>("SoldBy")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("SubTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TaxTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TaxableTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Total")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessDate")
+                        .HasDatabaseName("IX_Sales_BusinessDate");
+
+                    b.HasIndex("InvoiceNumber")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Sales_InvoiceNumber");
+
+                    b.HasIndex("SoldAtUtc")
+                        .HasDatabaseName("IX_Sales_SoldAtUtc");
+
+                    b.ToTable("Sales", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Sales_Customer_Phone_With_Name", "[CustomerPhone] IS NULL OR [CustomerName] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_Sales_Status_Valid", "[Status] BETWEEN 1 AND 3");
+
+                            t.HasCheckConstraint("CK_Sales_Totals_Reconcile", "[SubTotal] >= 0 AND [DiscountTotal] >= 0 AND [TaxableTotal] >= 0 AND [TaxTotal] >= 0\r\nAND [CostTotal] >= 0 AND [Total] >= 0\r\nAND [SubTotal] = [TaxableTotal] + [DiscountTotal]\r\nAND [Total] = [TaxableTotal] + [TaxTotal]\r\nAND [DiscountTotal] <= [SubTotal]");
+                        });
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.SaleLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("GrossAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("LineTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("MedicineId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("MedicineName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("SaleId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("TaxRatePercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal>("TaxableAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MedicineId")
+                        .HasDatabaseName("IX_SaleLines_MedicineId");
+
+                    b.HasIndex("SaleId", "LineNumber")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SaleLines_Sale_LineNumber");
+
+                    b.ToTable("SaleLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SaleLines_Amounts_Consistent", "[GrossAmount] = [TaxableAmount] + [DiscountAmount]\r\nAND [LineTotal] = [TaxableAmount] + [TaxAmount]");
+
+                            t.HasCheckConstraint("CK_SaleLines_Discount_Within_Gross", "[DiscountAmount] <= [GrossAmount]");
+
+                            t.HasCheckConstraint("CK_SaleLines_LineNumber_Positive", "[LineNumber] > 0");
+
+                            t.HasCheckConstraint("CK_SaleLines_Money_NonNegative", "[UnitPrice] >= 0 AND [UnitCost] >= 0 AND [GrossAmount] >= 0 AND [DiscountAmount] >= 0 AND [TaxableAmount] >= 0 AND [TaxRatePercent] >= 0 AND [TaxAmount] >= 0 AND [LineTotal] >= 0");
+
+                            t.HasCheckConstraint("CK_SaleLines_Quantity_Positive", "[Quantity] > 0");
+
+                            t.HasCheckConstraint("CK_SaleLines_TaxRate_Range", "[TaxRatePercent] <= 100");
+                        });
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.SaleLineBatchAllocation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateOnly>("ExpiryDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("MedicineBatchId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("SaleLineId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MedicineBatchId")
+                        .HasDatabaseName("IX_SaleLineBatchAllocations_MedicineBatchId");
+
+                    b.HasIndex("SaleLineId", "MedicineBatchId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SaleLineBatchAllocations_Line_Batch");
+
+                    b.ToTable("SaleLineBatchAllocations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SaleLineBatchAllocations_Quantity_Positive", "[Quantity] > 0");
+                        });
+                });
+
             modelBuilder.Entity("MediStock.Domain.Suppliers.Supplier", b =>
                 {
                     b.Property<int>("Id")
@@ -533,9 +817,68 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                     b.Navigation("Purchase");
                 });
 
+            modelBuilder.Entity("MediStock.Domain.Sales.Payment", b =>
+                {
+                    b.HasOne("MediStock.Domain.Sales.Sale", "Sale")
+                        .WithMany("Payments")
+                        .HasForeignKey("SaleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Sale");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.SaleLine", b =>
+                {
+                    b.HasOne("MediStock.Domain.Catalogue.Medicine", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MediStock.Domain.Sales.Sale", "Sale")
+                        .WithMany("Lines")
+                        .HasForeignKey("SaleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Sale");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.SaleLineBatchAllocation", b =>
+                {
+                    b.HasOne("MediStock.Domain.Inventory.MedicineBatch", "MedicineBatch")
+                        .WithMany()
+                        .HasForeignKey("MedicineBatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MediStock.Domain.Sales.SaleLine", "SaleLine")
+                        .WithMany("Allocations")
+                        .HasForeignKey("SaleLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MedicineBatch");
+
+                    b.Navigation("SaleLine");
+                });
+
             modelBuilder.Entity("MediStock.Domain.Purchasing.Purchase", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.Sale", b =>
+                {
+                    b.Navigation("Lines");
+
+                    b.Navigation("Payments");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Sales.SaleLine", b =>
+                {
+                    b.Navigation("Allocations");
                 });
 #pragma warning restore 612, 618
         }

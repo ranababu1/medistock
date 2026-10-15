@@ -1,10 +1,10 @@
 # MediStock database design
 
-The schema currently implements the catalogue, supplier and inventory foundations (Milestones 0–1).
-Purchase, sales, returns, identity and audit tables are described in
-[roadmap.md](roadmap.md) and will be added by later migrations.
+The schema currently implements the catalogue, supplier, inventory and point-of-sale foundations
+(Milestones 0–3). Returns, identity and audit tables are described in [roadmap.md](roadmap.md) and
+will be added by later migrations.
 
-Everything in this document is the **current** state of `20261015214039_InitialCreate`. Schema
+Everything in this document is the **current** state of `20261015224739_MedicineTaxRatePrecision`. Schema
 changes happen only through new EF Core migrations.
 
 ---
@@ -58,6 +58,7 @@ Medicine-level catalogue information, kept deliberately separate from stock batc
 | `Barcode` | `nvarchar(64)` | yes | Scannable product code |
 | `PackDescription` | `nvarchar(100)` | yes | Free-text pack description only |
 | `ReorderThreshold` | `decimal(18,3)` | yes | Below this, the medicine appears in low-stock lists |
+| `TaxRatePercent` | `decimal(5,2)` | no | Percentage applied at the till, `0`–`100`. Added by `PointOfSale`; narrowed to `(5,2)` by `MedicineTaxRatePrecision` |
 | `IsActive` | `bit` | no | Inactive medicines stay for history but cannot be sold |
 | `CreatedAtUtc` | `datetimeoffset(3)` | no | |
 | `UpdatedAtUtc` | `datetimeoffset(3)` | no | |
@@ -68,6 +69,12 @@ Medicine-level catalogue information, kept deliberately separate from stock batc
   have *no* barcode, but not the same barcode.
 - `IX_Medicines_DisplayName`, `IX_Medicines_GenericName` — search support.
 - `CK_Medicines_ReorderThreshold_NonNegative`.
+- `CK_Medicines_TaxRate_Range` — `TaxRatePercent >= 0 AND TaxRatePercent <= 100`, mirroring
+  `CK_SaleLines_TaxRate_Range` and `Medicine.MaxTaxRatePercent`.
+
+A tax rate is a percentage, not money, so it is `decimal(5,2)`: two decimals is enough for any slab and
+`decimal(18,2)` would have let a fat-fingered rate through. The rate is copied onto each sale line at
+checkout, so editing the catalogue never restates an issued invoice.
 
 ### 3.2 `Suppliers`
 
@@ -278,6 +285,174 @@ stock it once brought in.
 
 A zero `UnitCost` is allowed — suppliers do send free items, and the line still has to be counted.
 
+### 3.7 `Sales`
+
+One completed invoice. A sale is created completed, in one act, and is never edited: every money
+column is stored rather than derived, because an invoice is a historical document that must reprint
+unchanged after a tax rate, a catalogue name or a rounding policy has moved on.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | no | PK |
+| `InvoiceNumber` | `nvarchar(32)` | no | As issued to the customer, e.g. `INV-2026-000123`; never reused |
+| `BusinessDate` | `date` | no | Local pharmacy day the sale counts towards |
+| `SoldAtUtc` | `datetimeoffset(3)` | no | When it was rung up |
+| `SoldBy` | `nvarchar(150)` | no | Operator name; becomes a user reference in Milestone 5 |
+| `CustomerName` | `nvarchar(150)` | yes | |
+| `CustomerPhone` | `nvarchar(32)` | yes | Only ever set together with a name |
+| `Notes` | `nvarchar(500)` | yes | |
+| `Status` | `int` | no | `1`=Completed, `2`=Returned, `3`=Cancelled |
+| `SubTotal` | `decimal(18,2)` | no | Sum of the line gross amounts |
+| `DiscountTotal` | `decimal(18,2)` | no | Sum of the line discounts |
+| `TaxableTotal` | `decimal(18,2)` | no | `SubTotal` − `DiscountTotal` |
+| `TaxTotal` | `decimal(18,2)` | no | Sum of the line tax amounts |
+| `Total` | `decimal(18,2)` | no | `TaxableTotal` + `TaxTotal`; what the payments settle |
+| `CostTotal` | `decimal(18,2)` | no | Cost of the goods sold, for margin reporting only |
+| `CreatedAtUtc` | `datetimeoffset(3)` | no | |
+
+| Name | Definition |
+|---|---|
+| `CK_Sales_Status_Valid` | `Status BETWEEN 1 AND 3` |
+| `CK_Sales_Totals_Reconcile` | All six totals `>= 0`, `SubTotal = TaxableTotal + DiscountTotal`, `Total = TaxableTotal + TaxTotal`, `DiscountTotal <= SubTotal` |
+| `CK_Sales_Customer_Phone_With_Name` | `CustomerPhone IS NULL OR CustomerName IS NOT NULL` |
+| `UX_Sales_InvoiceNumber` | Unique on `(InvoiceNumber)` |
+| `IX_Sales_BusinessDate` | Daily takings and the sales history |
+| `IX_Sales_SoldAtUtc` | Recent sales, ordered by time |
+
+`CK_Sales_Totals_Reconcile` is the constraint that makes a stored invoice check itself. Because the
+totals are *sums of the stored, already-rounded line values* rather than a rounding of an unrounded
+sum, the lines printed on an invoice always add up to the totals printed below them.
+
+There is deliberately **no `RowVersion` on this table yet**: no code path updates a sale, and a token
+on a row that is only ever inserted buys nothing. Milestone 4 changes `Status` on cancellation and
+return, so it must add the token (see
+[ADR 0006](decisions/0006-context-lifetime-and-execution-strategy.md)) before it writes the first
+update — an unconditional `UPDATE … WHERE [Id] = @id` would let a losing writer overwrite a winner.
+
+### 3.8 `SaleLines`
+
+One charged line, with everything the printed document needs copied onto it at the moment of sale.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | no | PK |
+| `SaleId` | `int` | no | FK → `Sales.Id` (`Cascade`) |
+| `LineNumber` | `int` | no | Position on the invoice, consecutive from `1` |
+| `MedicineId` | `int` | no | FK → `Medicines.Id` (`Restrict`) |
+| `MedicineName` | `nvarchar(200)` | no | The catalogue name as it stood at the time of sale |
+| `Quantity` | `decimal(18,3)` | no | Positive |
+| `UnitPrice` | `decimal(18,2)` | no | Price per unit actually charged |
+| `UnitCost` | `decimal(18,2)` | no | Quantity-weighted average cost of the batches consumed |
+| `GrossAmount` | `decimal(18,2)` | no | `round(Quantity × UnitPrice)` |
+| `DiscountAmount` | `decimal(18,2)` | no | Absolute amount, never more than the gross |
+| `TaxableAmount` | `decimal(18,2)` | no | `GrossAmount` − `DiscountAmount` |
+| `TaxRatePercent` | `decimal(5,2)` | no | The rate applied, snapshotted |
+| `TaxAmount` | `decimal(18,2)` | no | `round(TaxableAmount × TaxRatePercent ÷ 100)` |
+| `LineTotal` | `decimal(18,2)` | no | `TaxableAmount` + `TaxAmount` |
+
+| Name | Definition |
+|---|---|
+| `CK_SaleLines_Quantity_Positive` | `Quantity > 0` |
+| `CK_SaleLines_Money_NonNegative` | Every money column and `TaxRatePercent` `>= 0` |
+| `CK_SaleLines_TaxRate_Range` | `TaxRatePercent <= 100` |
+| `CK_SaleLines_Discount_Within_Gross` | `DiscountAmount <= GrossAmount` |
+| `CK_SaleLines_LineNumber_Positive` | `LineNumber > 0` |
+| `CK_SaleLines_Amounts_Consistent` | `GrossAmount = TaxableAmount + DiscountAmount AND LineTotal = TaxableAmount + TaxAmount` |
+| `UX_SaleLines_Sale_LineNumber` | Unique on `(SaleId, LineNumber)` |
+| `IX_SaleLines_MedicineId` | Sales-by-medicine reporting |
+
+The medicine is referenced for reporting but never deleted, so a historic invoice keeps pointing at
+the catalogue entry it was written against.
+
+### 3.9 `SaleLineBatchAllocations`
+
+How much of one line came out of one batch. This is the join that makes a sale traceable to the stock
+it consumed, and it is what a future return is credited against.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | no | PK |
+| `SaleLineId` | `int` | no | FK → `SaleLines.Id` (`Cascade`) |
+| `MedicineBatchId` | `int` | no | FK → `MedicineBatches.Id` (`Restrict`) |
+| `BatchNumber` | `nvarchar(64)` | no | As printed on the pack at the time of sale |
+| `ExpiryDate` | `date` | no | The batch's expiry as it stood at the time of sale |
+| `Quantity` | `decimal(18,3)` | no | Positive; a sale only ever removes stock |
+
+| Name | Definition |
+|---|---|
+| `CK_SaleLineBatchAllocations_Quantity_Positive` | `Quantity > 0` |
+| `UX_SaleLineBatchAllocations_Line_Batch` | Unique on `(SaleLineId, MedicineBatchId)` |
+| `IX_SaleLineBatchAllocations_MedicineBatchId` | Answers "what has ever been sold out of this batch?" for expiry and recall investigations |
+
+The batch number and expiry date are copied rather than joined, so reprinting an invoice years later
+shows what the label actually said. The foreign key is `Restrict`, not `Cascade`: a batch is never
+deleted, and if one ever were, the invoice that recorded taking stock from it must not quietly lose
+that fact. The allocations of a line must sum to its `Quantity` — that is enforced by
+`SaleLine.Create` rather than by a constraint, because it spans rows; see invariant I25.
+
+### 3.10 `Payments`
+
+One settlement against an invoice. Several payments may settle one sale, which is how a split payment
+(part cash, part card) is recorded.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | no | PK |
+| `SaleId` | `int` | no | FK → `Sales.Id` (`Cascade`) |
+| `Method` | `int` | no | `1`=Cash, `2`=Card, `3`=Upi, `4`=Other |
+| `Amount` | `decimal(18,2)` | no | The amount **settled** by this method, not the amount tendered |
+| `Reference` | `nvarchar(100)` | yes | Card or UPI reference, or any note the operator needs |
+| `PaidAtUtc` | `datetimeoffset(3)` | no | |
+
+| Name | Definition |
+|---|---|
+| `CK_Payments_Amount_Positive` | `Amount > 0` |
+| `CK_Payments_Method_Valid` | `Method BETWEEN 1 AND 4` |
+| `IX_Payments_SaleId_Method` | Takings by payment method |
+
+`Amount > 0` is what makes a refund impossible to express as a payment: it has to be a return
+document (Milestone 4) that references the original sale and line. Change given at the counter is a
+till concern and is not stored — the sum of the payments must equal the invoice total exactly, and
+that can only be true if change is not part of the invoice.
+
+### 3.11 `InvoiceSequences`
+
+The counter behind invoice numbers: one row per numbering period, holding the last number issued.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `SequenceKey` | `nvarchar(32)` | no | PK, the numbering period, e.g. `INV-2026` |
+| `NextNumber` | `bigint` | no | The last number issued in this period |
+| `CreatedAtUtc` | `datetimeoffset(3)` | no | |
+| `UpdatedAtUtc` | `datetimeoffset(3)` | no | |
+
+| Name | Definition |
+|---|---|
+| `CK_InvoiceSequences_NextNumber_NonNegative` | `NextNumber >= 0` |
+
+The key is derived from the business date (`InvoiceSequence.KeyFor`), so the numbering period is the
+calendar year and the first invoice of 2027 is `INV-2027-000001`. Numbers are consumed by one atomic
+statement inside the checkout transaction, never by a read followed by a write:
+
+```sql
+MERGE INTO [dbo].[InvoiceSequences] WITH (HOLDLOCK) AS [target]
+USING (SELECT @key AS [SequenceKey]) AS [source]
+    ON [target].[SequenceKey] = [source].[SequenceKey]
+WHEN MATCHED THEN
+    UPDATE SET [NextNumber] = [target].[NextNumber] + 1, [UpdatedAtUtc] = @now
+WHEN NOT MATCHED THEN
+    INSERT ([SequenceKey], [NextNumber], [CreatedAtUtc], [UpdatedAtUtc])
+    VALUES (@key, 1, @now, @now)
+OUTPUT INSERTED.[NextNumber];
+```
+
+The first till holds an exclusive lock on the row until its transaction ends, and the second sees the
+advanced value, so two tills checking out at the same instant cannot both be handed the same number.
+There is deliberately **no concurrency token** on this row: it is never read before it is advanced, so
+a token would add a second failure mode without closing a race that the statement already closes. A
+sale that fails to commit releases its number, so a cancelled sale leaves a gap; `Sales`' unique index
+is the second line of defence. Never `MAX(Number) + 1`.
+
 ## 4. Invariants
 
 These must hold after every committed transaction. Each is enforced by the constraint named, and
@@ -303,11 +478,28 @@ each is asserted by an integration test.
 | I16 | One purchase cannot carry the same medicine and batch number twice | `UX_PurchaseLines_Purchase_Medicine_Batch` |
 | I17 | A line points at a batch that exists, and a purchase at a supplier that exists | FKs `Restrict` |
 | I18 | A lifecycle transition never overwrites a state another operation has already committed | `Purchases.RowVersion` + conditional update in `EfPurchaseCatalog` |
+| I19 | A line's money is the sum of its own rounded steps | `CK_SaleLines_Amounts_Consistent` |
+| I20 | An invoice's stored totals equal the sum of its stored lines | `CK_Sales_Totals_Reconcile` + `SaleTotals.From` |
+| I21 | A discount never exceeds the line value it discounts | `CK_SaleLines_Discount_Within_Gross` |
+| I22 | Every payment is positive and uses a known method | `CK_Payments_Amount_Positive`, `CK_Payments_Method_Valid` |
+| I23 | The payments of an invoice settle its total exactly | `Sale.Complete` (application) |
+| I24 | An invoice number identifies exactly one sale, and is never reused | `UX_Sales_InvoiceNumber` + `MERGE … WITH (HOLDLOCK)` on `InvoiceSequences` |
+| I25 | The allocations of a line are positive and sum to its quantity | `CK_SaleLineBatchAllocations_Quantity_Positive` + `SaleLine.Create` |
+| I26 | One line draws on a given batch at most once | `UX_SaleLineBatchAllocations_Line_Batch` |
+| I27 | Sale lines are numbered consecutively from one within their sale | `UX_SaleLines_Sale_LineNumber` + `Sale.Complete` |
+| I28 | A customer phone number cannot be recorded without a name | `CK_Sales_Customer_Phone_With_Name` |
+| I29 | Every unit sold is matched by a stock movement, and neither can commit without the other | `EfSaleCatalog` checkout order + reconciliation query (§5) |
 
 I13 is the only invariant the schema cannot express, because it spans rows. It is met by (a) the domain
 type refusing to mutate a balance without recording a movement and (b) the reconciliation query below,
 which the reconciliation script surfaces as a health check. I18 is conditional rather than declarative:
 the token is a column, but the check lives in the `WHERE` clause the token generates.
+
+I23, I25 and I29 also span rows, and each is enforced by the shape of the one transaction that writes
+them: the payments are summed against the total before the sale object is built, the allocations are
+checked against the quantity as each line is priced, and the stock movements are written in the same
+transaction as the sale and its quantity decrements. None of the three can be expressed as a check
+constraint, because all three compare rows the statement that creates them is still writing.
 
 ## 5. Reconciliation and reporting queries
 
@@ -352,6 +544,36 @@ WHERE b.QuantityOnHand > 0
 ORDER BY b.ExpiryDate;
 ```
 
+Every allocation on an invoice against the movements that took the stock out — expected to return
+**no rows**. Quantities are aggregated per sale and batch, because two lines of one invoice may draw
+on the same batch and produce a single movement between them:
+
+```sql
+WITH Allocated AS (
+    SELECT l.SaleId AS SaleId, a.MedicineBatchId AS MedicineBatchId, SUM(a.Quantity) AS Quantity
+    FROM SaleLineBatchAllocations AS a
+    JOIN SaleLines AS l ON l.Id = a.SaleLineId
+    GROUP BY l.SaleId, a.MedicineBatchId
+),
+Moved AS (
+    SELECT TRY_CONVERT(int, SUBSTRING(m.Reference, 6, 20)) AS SaleId,
+           m.MedicineBatchId AS MedicineBatchId,
+           SUM(-m.QuantityDelta) AS Quantity
+    FROM StockMovements AS m
+    WHERE m.MovementType = 2 AND m.Reference LIKE 'SALE-%'
+    GROUP BY TRY_CONVERT(int, SUBSTRING(m.Reference, 6, 20)), m.MedicineBatchId
+)
+SELECT COALESCE(allocated.SaleId, moved.SaleId) AS SaleId,
+       COALESCE(allocated.MedicineBatchId, moved.MedicineBatchId) AS MedicineBatchId,
+       allocated.Quantity AS Allocated, moved.Quantity AS Moved
+FROM Allocated AS allocated
+FULL OUTER JOIN Moved AS moved
+    ON moved.SaleId = allocated.SaleId AND moved.MedicineBatchId = allocated.MedicineBatchId
+WHERE allocated.Quantity IS NULL
+   OR moved.Quantity IS NULL
+   OR allocated.Quantity <> moved.Quantity;
+```
+
 ## 6. Costing and valuation
 
 Inventory valuation uses the **actual cost of each batch** (specific identification):
@@ -384,6 +606,8 @@ reconciliation query in §5 is the guard.
 | `20261015214039_InitialCreate` | `Medicines`, `Suppliers`, `MedicineBatches`, `StockMovements` and every constraint above |
 | `20261015215632_PurchasingAndReceiving` | `Purchases`, `PurchaseLines` and the constraints in §3.5–3.6 |
 | `20261015222213_PurchaseRowVersion` | `Purchases.RowVersion`, the concurrency token behind invariant I18 |
+| `20261015223056_PointOfSale` | `Sales`, `SaleLines`, `SaleLineBatchAllocations`, `Payments`, `InvoiceSequences`, `Medicines.TaxRatePercent` and the constraints in §3.7–3.11 |
+| `20261015224739_MedicineTaxRatePrecision` | `Medicines.TaxRatePercent` to `decimal(5,2)` plus `CK_Medicines_TaxRate_Range`; no table is added |
 
 ```powershell
 dotnet ef migrations add <Name> --project src\MediStock.Infrastructure --startup-project src\MediStock.Desktop
@@ -401,7 +625,6 @@ where the plan's shape is ambiguous.
 
 | Milestone | Tables |
 |---|---|
-| 3 | `Sales`, `SaleLines`, `SaleLineBatchAllocations`, `Payments`, `InvoiceSequences` |
 | 4 | `SalesReturns`, `SalesReturnLines`, `SupplierReturns`, `SupplierReturnLines` |
 | 5 | `Users`, `Roles`, `UserRoles`, `AuditLogs`, `ApplicationSettings` |
 
@@ -412,5 +635,6 @@ Two departures from the plan's original list are deliberate and recorded in
 last two are not needed while every adjustment already carries its own typed movement and reason
 (§3.4).
 
-`InvoiceSequences` will use a transactional counter row (or a SQL `SEQUENCE`) so invoice numbers stay
-unique under concurrency — never `MAX(Number) + 1`.
+`InvoiceSequences` is implemented exactly on the rule stated here: a transactional counter row advanced
+by one atomic statement (§3.11), never `MAX(Number) + 1`. Milestone 4 will add the return tables
+listed above, and must add a `RowVersion` to `Sales` before it writes the first status change (§3.7).

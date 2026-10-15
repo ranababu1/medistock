@@ -16,6 +16,7 @@ public class MedicineDraftTests
         Strength = "500 mg",
         Barcode = "8900000000011",
         ReorderThreshold = 50m,
+        TaxRatePercent = 12m,
     };
 
     [Fact]
@@ -51,6 +52,7 @@ public class MedicineDraftTests
 
         Assert.Equal("Paracetamol", medicine.DisplayName);
         Assert.Equal(DosageForm.Tablet, medicine.DosageForm);
+        Assert.Equal(12m, medicine.TaxRatePercent);
         Assert.True(medicine.IsActive);
     }
 
@@ -90,6 +92,7 @@ public class MedicineDraftTests
             medicine.Barcode,
             medicine.PackDescription,
             medicine.ReorderThreshold,
+            medicine.TaxRatePercent,
             medicine.IsActive,
             medicine.CreatedAtUtc,
             medicine.UpdatedAtUtc);

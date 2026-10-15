@@ -82,28 +82,44 @@ execution-strategy contract, and conditional lifecycle writes) and
 
 ---
 
-## Milestone 3 — Point of sale ⏳
+## Milestone 3 — Point of sale ✅
 
 **Tasks**
 
-- Build the fast product-search and cart interface.
-- Implement eligible-batch allocation and FEFO.
-- Implement pricing, discounts, and tax calculations.
-- Implement checkout as a database transaction.
-- Generate invoices and payment records.
-- Add invoice printing/export.
+- ✅ Build the fast product-search and cart interface.
+- ✅ Implement eligible-batch allocation and FEFO.
+- ✅ Implement pricing, discounts, and tax calculations.
+- ✅ Implement checkout as a database transaction.
+- ✅ Generate invoices and payment records.
+- ✅ Add invoice printing/export.
 
 **Acceptance criteria**
 
-- A successful sale reduces the correct batch quantities.
-- A failed sale leaves no partial sale, payment, or stock changes.
-- Expired or insufficient stock cannot be sold.
-- Invoice numbers remain unique.
-- Currency and tax calculations pass boundary tests.
+- ✅ A successful sale reduces the correct batch quantities.
+- ✅ A failed sale leaves no partial sale, payment, or stock changes.
+- ✅ Expired or insufficient stock cannot be sold.
+- ✅ Invoice numbers remain unique.
+- ✅ Currency and tax calculations pass boundary tests.
 
-**Present state:** `FefoAllocator`, `BatchAvailability` and `ExpiryPolicy` are implemented and unit
-tested. Pricing, tax, invoices and payments are not modelled — the plan requires a pharmacist to
-confirm the real rules first.
+**Evidence:** `tests\MediStock.IntegrationTests\Sales\SaleCatalogTests.cs` drives the real workflow
+end to end against SQL Server: a basket that spans two batches, a quote that agrees with its checkout
+to the paisa, an expired batch that is skipped even when it expires soonest, a short basket that writes
+nothing, a settlement that does not match the total, two tills racing for the last units, six tills
+racing for invoice numbers, a preferred batch, invoice search by number and date range, the day's
+takings moving by exactly one invoice, a reprint that changes no business state, and the same basket
+sold twice being two genuine invoices. Unit tests in `MediStock.Domain.Tests` cover the pricing order,
+rounding boundaries, discount limits and settlement, with no database. Four decisions shaped this
+milestone: [ADR 0007](decisions/0007-point-of-sale-pricing-and-settlement.md) (pricing, allocation,
+settlement and invoice numbering), [ADR 0002](decisions/0002-expiry-date-interpretation.md) (what
+"expired" means at the till), [ADR 0006](decisions/0006-context-lifetime-and-execution-strategy.md)
+(the batch rowversion that makes a quantity write conditional) and
+[ADR 0003](decisions/0003-inventory-valuation.md) (why cost of goods sold is not valuation).
+
+**Known gaps, deliberately left open:** a line is priced at the first allocated batch's selling price;
+tax is one rate per line; there are no percentage, basket-level or loyalty discounts; returns and
+cancellations do not exist yet; and CSV/PDF report export is Milestone 4 work. A pharmacist must
+confirm the discount, tax and pricing rules, and a tax professional the invoice format, before real
+use — see the note at the end of ADR 0007.
 
 ---
 
@@ -124,7 +140,10 @@ confirm the real rules first.
 - Report totals reconcile with transaction data.
 - Date-range boundaries and local business-date handling are tested.
 
-**Present state:** low-stock and near-expiry read models already back the dashboard.
+**Present state:** low-stock and near-expiry read models already back the dashboard. The counter now
+writes invoices, payments, allocations and movements, so the reports have real transactions to
+reconcile against. Returns must credit against `SaleLineBatchAllocations`, respect the returnable
+quantity, and require an explicit disposition before anything goes back on the shelf as sellable.
 
 ---
 

@@ -32,6 +32,12 @@
             <DataTemplate DataType="{x:Type vm:InventoryViewModel}">
                 <views:InventoryView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:NewSaleViewModel}">
+                <views:NewSaleView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:SalesHistoryViewModel}">
+                <views:SalesHistoryView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />
             </DataTemplate>

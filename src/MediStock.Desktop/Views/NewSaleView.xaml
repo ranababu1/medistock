@@ -1,0 +1,396 @@
+<UserControl x:Class="MediStock.Desktop.Views.NewSaleView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MediStock.Desktop.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:NewSaleViewModel}"
+             d:DesignHeight="760"
+             d:DesignWidth="1200"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid Margin="24,20,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="New Sale" Style="{StaticResource PageTitleText}" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0">
+                    <Run Text="Scan or search to fill the basket. Next invoice number: " />
+                    <Run Text="{Binding InvoicePreview, Mode=OneWay}" FontWeight="SemiBold" />
+                    <Run Text=" (reserved when the sale is completed)." />
+                </TextBlock>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Reprint last receipt"
+                        Style="{StaticResource SecondaryButton}"
+                        Command="{Binding ReprintLastCommand}"
+                        IsEnabled="{Binding IsNotBusy}"
+                        Margin="0,0,10,0" />
+                <Button Content="New basket"
+                        Style="{StaticResource SecondaryButton}"
+                        Command="{Binding NewBasketCommand}"
+                        IsEnabled="{Binding IsNotBusy}"
+                        Margin="0,0,10,0" />
+                <Button Content="Take payment"
+                        Style="{StaticResource PrimaryButton}"
+                        Command="{Binding SettleCommand}"
+                        IsEnabled="{Binding CanSettle}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Banners -->
+        <StackPanel Grid.Row="1">
+            <Border Style="{StaticResource Card}"
+                    Margin="0,0,0,10"
+                    Padding="14,10"
+                    Background="{StaticResource DangerSoftBrush}"
+                    BorderBrush="#F2C9C9"
+                    Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Foreground="{StaticResource DangerBrush}"
+                           TextWrapping="Wrap" />
+            </Border>
+
+            <Border Style="{StaticResource Card}"
+                    Margin="0,0,0,10"
+                    Padding="14,10"
+                    Background="{StaticResource SuccessSoftBrush}"
+                    Visibility="{Binding StatusMessage, Converter={StaticResource NotNull}}">
+                <TextBlock Text="{Binding StatusMessage}"
+                           Foreground="{StaticResource SuccessBrush}"
+                           TextWrapping="Wrap" />
+            </Border>
+        </StackPanel>
+
+        <!-- Scan and search -->
+        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="14" Margin="0,0,0,14">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Scan a barcode, or type a name and press Enter"
+                                   Style="{StaticResource FieldLabelText}" />
+                        <TextBox x:Name="ScanBox"
+                                 Style="{StaticResource ThemedTextBox}"
+                                 Text="{Binding ScanText, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,4,0,0">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Enter" Command="{Binding AddByCodeOrTermCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+                    </StackPanel>
+
+                    <Button Grid.Column="2"
+                            Content="Find"
+                            Style="{StaticResource SecondaryButton}"
+                            VerticalAlignment="Bottom"
+                            Command="{Binding AddByCodeOrTermCommand}"
+                            IsEnabled="{Binding IsNotBusy}" />
+                </Grid>
+
+                <Grid Grid.Row="1" Margin="0,10,0,0"
+                      Visibility="{Binding HasSearched, Converter={StaticResource BoolToVisibility}}">
+                    <DataGrid ItemsSource="{Binding SearchResults}"
+                              SelectedItem="{Binding SelectedSearchResult}"
+                              Style="{StaticResource ThemedDataGrid}"
+                              MaxHeight="180"
+                              MouseDoubleClick="OnSearchResultActivated">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Medicine" Binding="{Binding DisplayName}" Width="*" />
+                            <DataGridTextColumn Header="Strength" Binding="{Binding Strength}" Width="Auto" />
+                            <DataGridTextColumn Header="Form" Binding="{Binding DosageForm}" Width="Auto" />
+                            <DataGridTextColumn Header="Pack" Binding="{Binding PackDescription}" Width="Auto" />
+                            <DataGridTextColumn Header="Barcode" Binding="{Binding Barcode}" Width="Auto" />
+                            <DataGridTextColumn Header="Tax %" Binding="{Binding TaxRatePercent, StringFormat={}{0:0.##}}" Width="Auto" />
+                            <DataGridTemplateColumn Width="Auto">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="Add"
+                                                Style="{StaticResource LinkButton}"
+                                                Command="{Binding DataContext.AddSelectedCommand,
+                                                          RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               TextWrapping="Wrap"
+                               Margin="0,8,0,0"
+                               Visibility="{Binding HasNoSearchResults, Converter={StaticResource BoolToVisibility}}"
+                               Text="Nothing matched. Check the spelling, or add the medicine to the catalogue first — a sale can only contain catalogue records." />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Basket and settlement -->
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="420" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="340" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource Card}" Padding="14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Basket" Style="{StaticResource SectionHeaderText}" />
+                            <TextBlock Text="{Binding CartSummary}" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Content="Empty basket"
+                                Style="{StaticResource LinkButton}"
+                                Command="{Binding ClearCartCommand}"
+                                VerticalAlignment="Top" />
+                    </Grid>
+
+                    <Grid Grid.Row="1">
+                        <DataGrid ItemsSource="{Binding Cart}"
+                                  Style="{StaticResource ThemedDataGrid}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  SelectionMode="Single">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="*" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Qty"
+                                                    Binding="{Binding Quantity, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.###}}"
+                                                    Width="70" />
+                                <DataGridTextColumn Header="Unit price"
+                                                    Binding="{Binding UnitPrice, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.00}}"
+                                                    Width="90" />
+                                <DataGridTextColumn Header="Discount"
+                                                    Binding="{Binding DiscountAmount, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.00}}"
+                                                    Width="90" />
+                                <DataGridTextColumn Header="Tax %" Binding="{Binding TaxRatePercent, StringFormat={}{0:0.##}}" Width="60" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Line total"
+                                                    Binding="{Binding QuotedLineTotal, StringFormat={}{0:N2}}"
+                                                    Width="100" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Batch allocation (first expiry first out)"
+                                                    Binding="{Binding QuotedAllocation}"
+                                                    Width="*" IsReadOnly="True" />
+                                <DataGridTemplateColumn Width="Auto">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Remove"
+                                                    Style="{StaticResource LinkButton}"
+                                                    Command="{Binding DataContext.RemoveLineCommand,
+                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <Border Background="{StaticResource SurfaceBrush}"
+                                CornerRadius="6"
+                                Padding="16"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Center"
+                                Visibility="{Binding IsCartEmpty, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       TextWrapping="Wrap"
+                                       Text="The basket is ready. Scan a barcode or type a name above to add the first item." />
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Column="2">
+                <!-- Totals -->
+                <Border Style="{StaticResource Card}" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="Totals" Style="{StaticResource SectionHeaderText}" />
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,8"
+                                   Text="Calculated from the catalogue, the batches being consumed and the tax rate on each line." />
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Subtotal" Style="{StaticResource BodyText}" />
+                            <TextBlock Grid.Column="1" Text="{Binding SubTotalText}" Style="{StaticResource BodyText}" FontFamily="{StaticResource MonoFont}" />
+                        </Grid>
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Discount" Style="{StaticResource BodyText}" />
+                            <TextBlock Grid.Column="1" Text="{Binding DiscountTotalText}" Style="{StaticResource BodyText}" FontFamily="{StaticResource MonoFont}" />
+                        </Grid>
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Taxable" Style="{StaticResource BodyText}" />
+                            <TextBlock Grid.Column="1" Text="{Binding TaxableTotalText}" Style="{StaticResource BodyText}" FontFamily="{StaticResource MonoFont}" />
+                        </Grid>
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Tax" Style="{StaticResource BodyText}" />
+                            <TextBlock Grid.Column="1" Text="{Binding TaxTotalText}" Style="{StaticResource BodyText}" FontFamily="{StaticResource MonoFont}" />
+                        </Grid>
+
+                        <Border Style="{StaticResource Divider}" Margin="0,8" />
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Total" Style="{StaticResource SectionHeaderText}" />
+                            <TextBlock Grid.Column="1" Text="{Binding TotalText}" Style="{StaticResource MetricValueText}" FontFamily="{StaticResource MonoFont}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Settlement -->
+                <Border Style="{StaticResource Card}" Padding="14" Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Settlement" Style="{StaticResource SectionHeaderText}" />
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,8"
+                                   Text="The invoice records exactly what was charged, so the settlement must equal the total. Tender and change are handled at the till." />
+
+                        <DataGrid ItemsSource="{Binding Payments}"
+                                  Style="{StaticResource ThemedDataGrid}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  MaxHeight="120">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Method" Binding="{Binding Method}" Width="Auto" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Amount" Binding="{Binding Amount, StringFormat={}{0:N2}}" Width="*" IsReadOnly="True" />
+                                <DataGridTemplateColumn Width="Auto">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Remove"
+                                                    Style="{StaticResource LinkButton}"
+                                                    Command="{Binding DataContext.RemovePaymentCommand,
+                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Method" Style="{StaticResource FieldLabelText}" Margin="0,8,0,0" />
+                        <ComboBox Style="{StaticResource ThemedComboBox}"
+                                  ItemsSource="{Binding PaymentMethods}"
+                                  DisplayMemberPath="Label"
+                                  SelectedItem="{Binding SelectedPaymentMethod}" />
+
+                        <TextBlock Text="Amount" Style="{StaticResource FieldLabelText}" Margin="0,8,0,0" />
+                        <TextBox Style="{StaticResource ThemedTextBox}"
+                                 Text="{Binding PaymentAmount, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.00}}" />
+
+                        <TextBlock Text="Reference (card or UPI)" Style="{StaticResource FieldLabelText}" Margin="0,8,0,0" />
+                        <TextBox Style="{StaticResource ThemedTextBox}"
+                                 Text="{Binding PaymentReference, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <Button Content="Add to settlement"
+                                Style="{StaticResource SecondaryButton}"
+                                Margin="0,10,0,0"
+                                HorizontalAlignment="Stretch"
+                                Command="{Binding AddPaymentCommand}"
+                                IsEnabled="{Binding IsNotBusy}" />
+
+                        <Border Style="{StaticResource Divider}" Margin="0,12" />
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Paid" Style="{StaticResource BodyText}" />
+                            <TextBlock Grid.Column="1" Text="{Binding TotalPaidText}" Style="{StaticResource BodyText}" FontFamily="{StaticResource MonoFont}" />
+                        </Grid>
+
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Outstanding" Style="{StaticResource BodyText}" />
+                            <TextBlock Grid.Column="1" Text="{Binding BalanceText}" Style="{StaticResource BodyText}" FontFamily="{StaticResource MonoFont}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Customer -->
+                <Border Style="{StaticResource Card}" Padding="14" Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Customer and operator" Style="{StaticResource SectionHeaderText}" />
+
+                        <TextBlock Text="Served by" Style="{StaticResource FieldLabelText}" Margin="0,8,0,0" />
+                        <TextBox Style="{StaticResource ThemedTextBox}"
+                                 Text="{Binding SoldBy, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBlock Text="Customer name" Style="{StaticResource FieldLabelText}" Margin="0,8,0,0" />
+                        <TextBox Style="{StaticResource ThemedTextBox}"
+                                 Text="{Binding CustomerName, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBlock Text="Customer phone" Style="{StaticResource FieldLabelText}" Margin="0,8,0,0" />
+                        <TextBox Style="{StaticResource ThemedTextBox}"
+                                 Text="{Binding CustomerPhone, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBlock Text="Notes" Style="{StaticResource FieldLabelText}" Margin="0,8,0,0" />
+                        <TextBox Style="{StaticResource ThemedTextBox}"
+                                 AcceptsReturn="True"
+                                 Height="56"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

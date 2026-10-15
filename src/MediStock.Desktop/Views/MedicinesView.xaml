@@ -104,6 +104,9 @@
                             <DataGridTextColumn Header="Form" Binding="{Binding DosageForm}" Width="Auto" />
                             <DataGridTextColumn Header="Generic name" Binding="{Binding GenericName}" Width="*" />
                             <DataGridTextColumn Header="Barcode" Binding="{Binding Barcode}" Width="Auto" />
+                            <DataGridTextColumn Header="Tax %"
+                                                Binding="{Binding TaxRatePercent, StringFormat=0.##}"
+                                                Width="Auto" />
                             <DataGridTextColumn Header="Status"
                                                 Binding="{Binding IsActive, Converter={StaticResource ActiveStatus}}"
                                                 Width="Auto" />
@@ -207,6 +210,11 @@
                         <TextBox Style="{StaticResource ThemedTextBox}"
                                  Text="{Binding Editor.ReorderThreshold, TargetNullValue=''}"
                                  ToolTip="Leave empty to exclude this medicine from the low-stock list" />
+
+                        <TextBlock Text="Tax rate (%)" Style="{StaticResource FieldLabelText}" Margin="0,12,0,4" />
+                        <TextBox Style="{StaticResource ThemedTextBox}"
+                                 Text="{Binding Editor.TaxRatePercent}"
+                                 ToolTip="Copied onto each invoice line when the medicine is sold. Changing it never alters invoices already issued." />
 
                         <CheckBox Style="{StaticResource ThemedCheckBox}"
                                   Content="Active and available for new sales"

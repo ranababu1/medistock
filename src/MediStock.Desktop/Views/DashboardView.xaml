@@ -59,8 +59,28 @@
                                TextWrapping="Wrap" />
                 </Border>
 
+                <!-- Today's trading -->
+                <ItemsControl ItemsSource="{Binding SalesMetrics}" Focusable="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource MetricCard}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Label}" Style="{StaticResource CaptionText}" />
+                                    <TextBlock Text="{Binding Value}" Style="{StaticResource MetricValueText}" Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding Hint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
                 <!-- Headline metrics -->
-                <ItemsControl ItemsSource="{Binding SnapshotMetrics}" Focusable="False">
+                <ItemsControl ItemsSource="{Binding SnapshotMetrics}" Focusable="False" Margin="0,14,0,0">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel Orientation="Horizontal" />
@@ -185,6 +205,60 @@
                     </Border>
                 </Grid>
 
+                <!-- Recent sales -->
+                <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Recent sales" Style="{StaticResource SectionHeaderText}" />
+                                <TextBlock Style="{StaticResource CaptionText}">
+                                    <Run Text="The most recent completed invoices, newest first — not only today's." />
+                                </TextBlock>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="Open sales history"
+                                    Style="{StaticResource LinkButton}"
+                                    VerticalAlignment="Top"
+                                    Command="{Binding OpenSalesHistoryCommand}" />
+                        </Grid>
+
+                        <Grid Grid.Row="1" MinHeight="140">
+                            <DataGrid ItemsSource="{Binding RecentSales}"
+                                      Style="{StaticResource ThemedDataGrid}"
+                                      MaxHeight="260">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Invoice" Binding="{Binding InvoiceNumber}" Width="Auto" />
+                                    <DataGridTextColumn Header="Sold at" Binding="{Binding SoldAtUtc, StringFormat='{}{0:dd/MM HH:mm}', ConverterCulture=en-GB}" Width="Auto" />
+                                    <DataGridTextColumn Header="Customer" Binding="{Binding CustomerName}" Width="*" />
+                                    <DataGridTextColumn Header="Lines" Binding="{Binding Lines.Count}" Width="Auto" />
+                                    <DataGridTextColumn Header="Total" Binding="{Binding Total, StringFormat={}{0:N2}}" Width="Auto" />
+                                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="Auto" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <Border Background="{StaticResource SurfaceBrush}"
+                                    CornerRadius="6"
+                                    Padding="16"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Center"
+                                    Visibility="{Binding HasNoRecentSales, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="No sale has been completed yet. Use New sale to ring up the first one."
+                                           Style="{StaticResource CaptionText}"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Border>
+
                 <!-- Connection status and quick actions -->
                 <Grid Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
@@ -217,6 +291,10 @@
                         <StackPanel>
                             <TextBlock Text="Quick actions" Style="{StaticResource SectionHeaderText}" />
                             <WrapPanel Margin="0,10,0,0">
+                                <Button Content="New sale" Style="{StaticResource PrimaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenNewSaleCommand}" />
+                                <Button Content="Sales history" Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenSalesHistoryCommand}" />
                                 <Button Content="Medicines" Style="{StaticResource SecondaryButton}"
                                         Margin="0,0,10,8" Command="{Binding OpenMedicinesCommand}" />
                                 <Button Content="Receive purchase" Style="{StaticResource SecondaryButton}"
@@ -229,7 +307,7 @@
 
                             <Border Style="{StaticResource Divider}" Margin="0,6,0,10" />
 
-                            <TextBlock Text="Planned for later milestones: batch-level stock detail, purchase receiving, point of sale, returns, and report exports."
+                            <TextBlock Text="Planned for later milestones: sale returns, expiry write-offs, and report exports."
                                        Style="{StaticResource CaptionText}"
                                        TextWrapping="Wrap" />
                         </StackPanel>

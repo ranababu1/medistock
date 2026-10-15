@@ -13,6 +13,12 @@ public class Medicine
     public const int BarcodeMaxLength = 64;
     public const int PackDescriptionMaxLength = 100;
 
+    /// <summary>
+    /// Highest tax rate the catalogue accepts, expressed as a percentage. Rates above this are far
+    /// more likely to be a typing error than a real tax slab.
+    /// </summary>
+    public const decimal MaxTaxRatePercent = 100m;
+
     /// <summary>Required by Entity Framework Core.</summary>
     private Medicine()
     {
@@ -45,6 +51,13 @@ public class Medicine
     /// <summary>Total quantity across batches below which the item is reported as low stock.</summary>
     public decimal? ReorderThreshold { get; private set; }
 
+    /// <summary>
+    /// Tax rate applied to this medicine at the point of sale, as a percentage. Held here because tax
+    /// follows the product, not the batch. The rate in force is copied onto the sale line, so changing
+    /// it here never alters an invoice that has already been issued.
+    /// </summary>
+    public decimal TaxRatePercent { get; private set; }
+
     /// <summary>Inactive medicines stay in the catalogue so historical documents remain readable.</summary>
     public bool IsActive { get; private set; } = true;
 
@@ -62,6 +75,7 @@ public class Medicine
         string? barcode = null,
         string? packDescription = null,
         decimal? reorderThreshold = null,
+        decimal taxRatePercent = 0m,
         DateTimeOffset? nowUtc = null)
     {
         var timestamp = nowUtc ?? DateTimeOffset.UtcNow;
@@ -73,7 +87,8 @@ public class Medicine
         };
 
         medicine.ApplyDetails(
-            dosageForm, brandName, genericName, strength, manufacturer, barcode, packDescription, reorderThreshold);
+            dosageForm, brandName, genericName, strength, manufacturer, barcode, packDescription,
+            reorderThreshold, taxRatePercent);
 
         return medicine;
     }
@@ -88,11 +103,13 @@ public class Medicine
         string? barcode,
         string? packDescription,
         decimal? reorderThreshold,
+        decimal taxRatePercent = 0m,
         DateTimeOffset? nowUtc = null)
     {
         DisplayName = Guard.Required(displayName, DisplayNameMaxLength, "Display name");
         ApplyDetails(
-            dosageForm, brandName, genericName, strength, manufacturer, barcode, packDescription, reorderThreshold);
+            dosageForm, brandName, genericName, strength, manufacturer, barcode, packDescription,
+            reorderThreshold, taxRatePercent);
         UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
     }
 
@@ -126,11 +143,18 @@ public class Medicine
         string? manufacturer,
         string? barcode,
         string? packDescription,
-        decimal? reorderThreshold)
+        decimal? reorderThreshold,
+        decimal taxRatePercent)
     {
         if (!Enum.IsDefined(dosageForm))
         {
             throw new DomainValidationException($"'{dosageForm}' is not a supported dosage form.");
+        }
+
+        if (taxRatePercent < 0m || taxRatePercent > MaxTaxRatePercent)
+        {
+            throw new DomainValidationException(
+                $"Tax rate must be between 0 and {MaxTaxRatePercent:0.##} percent; {taxRatePercent:0.##} was given.");
         }
 
         DosageForm = dosageForm;
@@ -141,5 +165,6 @@ public class Medicine
         Barcode = Guard.Optional(barcode, BarcodeMaxLength, "Barcode");
         PackDescription = Guard.Optional(packDescription, PackDescriptionMaxLength, "Pack description");
         ReorderThreshold = Guard.NonNegative(reorderThreshold, "Reorder threshold");
+        TaxRatePercent = Money.Round(taxRatePercent);
     }
 }

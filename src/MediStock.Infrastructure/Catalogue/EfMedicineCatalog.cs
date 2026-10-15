@@ -28,6 +28,7 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
         m.Barcode,
         m.PackDescription,
         m.ReorderThreshold,
+        m.TaxRatePercent,
         m.IsActive,
         m.CreatedAtUtc,
         m.UpdatedAtUtc);
@@ -277,6 +278,7 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
         medicine.Barcode,
         medicine.PackDescription,
         medicine.ReorderThreshold,
+        medicine.TaxRatePercent,
         medicine.IsActive,
         medicine.CreatedAtUtc,
         medicine.UpdatedAtUtc);

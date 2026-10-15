@@ -31,6 +31,17 @@ internal sealed class MedicineBatchConfiguration : IEntityTypeConfiguration<Medi
 
         builder.HasKey(b => b.Id);
 
+        // Selling reduces the cached balance. EF writes it back with a bare
+        // UPDATE [MedicineBatches] SET [QuantityOnHand]=@p WHERE [Id]=@p when the batch carries no
+        // concurrency token, so two tills selling the last unit at the same moment would both read
+        // one, both write zero, and the pharmacy would be one unit short with a ledger that says so
+        // only after a reconciliation. The token makes that write conditional: the loser matches no
+        // row, EF raises DbUpdateConcurrencyException, and the whole checkout transaction rolls back
+        // instead of committing a stock level that never existed. Mapped as a shadow property because
+        // concurrency is a persistence concern and the domain type has no reason to know about it.
+        // See ADR 0006 and ADR 0007.
+        builder.Property<byte[]>(ConcurrencyToken.RowVersion).IsRowVersion();
+
         builder.Property(b => b.BatchNumber).HasMaxLength(MedicineBatch.BatchNumberMaxLength).IsRequired();
         builder.Property(b => b.SupplierInvoiceNumber).HasMaxLength(MedicineBatch.InvoiceNumberMaxLength);
         builder.Property(b => b.StatusReason).HasMaxLength(StockMovement.ReasonMaxLength);

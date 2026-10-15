@@ -86,6 +86,7 @@ Rules enforced here, not in the UI:
 | Diagnostics | `IDatabaseHealthCheck`, `DatabaseHealthReport` |
 | Catalogue | `MedicineDto`, `MedicineDraft`, `MedicineSearchQuery`, `IMedicineCatalog` |
 | Dashboard | `IDashboardQueries`, `DashboardSnapshot`, `LowStockItem`, `ExpiringBatch` |
+| Sales | `SaleDraft`, `SaleLineDraft`, `PaymentDraft`, `SaleQuote`, `SaleDto`, `SaleLineDto`, `SaleAllocationDto`, `PaymentDto`, `SaleQuery`, `ISaleCatalog`, `ISalesQueries`, `IReceiptExporter` |
 
 `OperationResult` (and its generic form) is the standard outcome for a use case: a success flag, a
 message and a list of errors. `OperationResult.From(Exception)` maps `DomainException` messages
@@ -105,6 +106,7 @@ a complete list of problems in one pass instead of one exception at a time.
 | Suppliers | `EfSupplierCatalog` |
 | Purchasing | `EfPurchaseCatalog` |
 | Inventory | `EfStockQueries` |
+| Sales | `EfSaleCatalog`, `EfSalesQueries`, `EfInvoiceNumberAllocator`, `TextReceiptExporter` |
 | Dashboard | `EfDashboardQueries` |
 | Diagnostics | `SqlServerDatabaseHealthCheck` |
 | Time | `SystemClock` |
@@ -131,10 +133,11 @@ Desktop/
 │                                      MedicineEditorViewModel, SuppliersViewModel,
 │                                      SupplierEditorViewModel, PurchasesViewModel,
 │                                      PurchaseEditorViewModel, PurchaseLineEditorViewModel,
-│                                      InventoryViewModel, PlaceholderViewModel
+│                                      InventoryViewModel, NewSaleViewModel, CartLineViewModel,
+│                                      SalesHistoryViewModel, PlaceholderViewModel
 └── Views/                             ShellWindow, DashboardView, MedicinesView, SuppliersView,
-                                       PurchasesView, InventoryView, TextPromptWindow,
-                                       PlaceholderView
+                                       PurchasesView, InventoryView, NewSaleView,
+                                       SalesHistoryView, TextPromptWindow, PlaceholderView
 ```
 
 - **Composition root.** `App.OnStartup` builds a `HostApplicationBuilder`, calls
@@ -171,17 +174,25 @@ translated at the infrastructure boundary (SQL error 547 = constraint, 2601 = du
 **Concurrency.** The database is the arbiter. Check constraints, foreign keys, transactions and
 concurrency tokens enforce the invariants; a UI check is a courtesy, never the guarantee.
 
-**Conditional lifecycle writes.** A row that carries a lifecycle — today `Purchases`, in Milestone 3
-`Sales` — maps a `rowversion` shadow property as an EF Core concurrency token. EF Core then emits
+**Conditional lifecycle writes.** A row that carries a mutable lifecycle maps a `rowversion` shadow
+property as an EF Core concurrency token: `Purchases` does (ADR 0006) and so does `MedicineBatches`,
+whose quantity is decremented by every sale. EF Core then emits
 `UPDATE … WHERE [Id] = @id AND [RowVersion] = @original` and raises
 `DbUpdateConcurrencyException` when another operation committed first. Because the exception is raised
 inside the unit of work and the code returns without committing, the whole transaction — including any
 batch inserts or quantity decrements — rolls back. The catalog converts it into a message the operator
-can act on ("reload the purchase"), never a stack trace. A write path that mutates a balance without
-such a token is a bug: an unconditional `UPDATE … WHERE [Id] = @id` silently overwrites newer state.
+can act on ("reload the purchase", or "check the basket against current stock"), never a stack trace.
+A write path that mutates a balance without such a token is a bug: an unconditional
+`UPDATE … WHERE [Id] = @id` silently overwrites newer state. A row that is only ever inserted — `Sales`,
+`SaleLines`, `Payments` — needs none, and gets none; Milestone 4 must add one to `Sales` before it
+writes the first status change.
 
-**Transactions.** A sale, its lines, payments and stock movements must commit or roll back together.
-The rule for every future write path is: do not reduce stock before the sale is safely committed.
+**Transactions.** A sale, its lines, payments, allocations and stock movements commit together or not
+at all. The checkout writes in one order inside one transaction — price the basket, stop if blocked,
+record the payments, take the invoice number, build the sale, decrease the batches, save, write one
+movement per batch, save, commit — and reduces stock last, so nothing can leave the shelf behind an
+invoice that was never written. The rule for every future write path is: do not reduce stock before the
+sale is safely committed. See [ADR 0007](decisions/0007-point-of-sale-pricing-and-settlement.md).
 
 **Context lifetime.** A desktop application has no request boundary, so a scoped `DbContext` would be
 shared by the whole process and two overlapping `await`s would collide on it. Infrastructure therefore
@@ -197,13 +208,32 @@ execution strategy. Every write path that opens a transaction therefore runs it 
 attempt, and performs reloading and logging only after the strategy. See
 [ADR 0006](decisions/0006-context-lifetime-and-execution-strategy.md).
 
+The execution strategy retries transient SQL faults; it does **not** retry a concurrency conflict,
+because that is EF Core's own exception rather than one SQL Server raised. The checkout therefore wraps
+the strategy in its own bounded attempt loop: a basket that lost a race for the stock it was priced
+against is read, re-priced and written again (up to eight attempts, with a short growing pause) before
+the operator is told the shelf moved under them. A refusal therefore means the stock really is short —
+not merely that another till was busy.
+
+Two details keep that loop honest. The transaction is opened *inside* the unit of work, so a failed
+attempt is rolled back by disposing it and the next attempt starts clean — the retry never rejoins a
+half-written transaction. And because the connection enables MARS, EF Core disables savepoints and logs
+`Savepoints are disabled because Multiple Active Result Sets (MARS) is enabled` whenever it opens one;
+that warning is expected. It is precisely the reason the unit of work is retried as a whole rather than
+resumed: after a failed attempt the application, not EF Core, is responsible for rolling back, and
+disposing the transaction does it.
+
+**Loading an invoice.** A sale aggregate carries two collections — lines (with their batch allocations)
+and payments — so it is loaded with `AsSplitQuery()`: one round trip per collection instead of one
+round trip returning lines × payments rows for every invoice in a search result.
+
 ## 5. Testing
 
 | Level | Project | Approach |
 |---|---|---|
-| Unit | `MediStock.Domain.Tests` | Pure rules: money, guards, catalogue validation, expiry policy, FEFO ordering, batch balances, movement invariants. No database. |
+| Unit | `MediStock.Domain.Tests` | Pure rules: money, guards, catalogue validation, expiry policy, FEFO ordering, batch balances, movement invariants, purchase lifecycle, sale-line pricing and settlement. No database. |
 | Unit | `MediStock.Application.Tests` | DTO/draft normalisation and `OperationResult` semantics. |
-| Integration | `MediStock.IntegrationTests` | Real SQL Server: migrations, every named check constraint/index, catalogue CRUD and search, the receiving workflow end to end. |
+| Integration | `MediStock.IntegrationTests` | Real SQL Server: migrations, every named check constraint/index, catalogue CRUD and search, the receiving workflow end to end, and the counter — allocation, pricing, transactional checkout, racing tills and invoice numbering. |
 
 `TestDatabaseFixture` creates `MediStock_Test` (override with `MEDISTOCK_TEST_CONNECTION`), applies
 migrations, exposes a scope per test, and drops the database on teardown. It never touches a
@@ -214,6 +244,12 @@ development or production database. Integration tests share one fixture through 
 
 - LocalDB is the development target; a production deployment needs a deliberate choice of SQL
   Server edition and licensing.
-- Single-operator mode only — authentication, roles and the audit trail arrive in Milestone 5.
-- Tax classification, pack/unit conversion and pricing rules are deliberately unmodelled until a
-  pharmacist confirms the real workflow.
+- Single-operator mode only — authentication, roles and the audit trail arrive in Milestone 5. The
+  `SoldBy` column on `Sales` and `Purchases` records a typed name, not a verified identity.
+- The counter prices a line at the selling price of the first batch allocated and applies one tax rate
+  per line. Inclusive pricing, percentage or basket-level discounts, per-allocation pricing, HSN codes
+  and statutory rounding are unmodelled until a pharmacist and a tax professional confirm the real
+  rules — see [ADR 0007](decisions/0007-point-of-sale-pricing-and-settlement.md).
+- Returns, cancellations, expiry write-offs and supplier returns arrive in Milestone 4. A completed
+  invoice currently has no path back: the money and the stock stay where they are.
+- Report export is a text receipt per invoice; CSV and PDF reports are Milestone 4 work.

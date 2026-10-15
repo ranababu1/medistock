@@ -14,6 +14,7 @@ public sealed record MedicineDto(
     string? Barcode,
     string? PackDescription,
     decimal? ReorderThreshold,
+    decimal TaxRatePercent,
     bool IsActive,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc)

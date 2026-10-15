@@ -81,11 +81,14 @@ public class MedicineTests
     {
         var medicine = Medicine.Create("Parecetamol", DosageForm.Tablet, nowUtc: Now);
 
-        medicine.Update("Paracetamol", DosageForm.Tablet, "FeverKare", "Paracetamol", "500 mg", null, "8900000000011", null, 50m, Now.AddHours(2));
+        medicine.Update(
+            "Paracetamol", DosageForm.Tablet, "FeverKare", "Paracetamol", "500 mg", null,
+            "8900000000011", null, 50m, taxRatePercent: 12m, nowUtc: Now.AddHours(2));
 
         Assert.Equal("Paracetamol", medicine.DisplayName);
         Assert.Equal("FeverKare", medicine.BrandName);
         Assert.Equal(50m, medicine.ReorderThreshold);
+        Assert.Equal(12m, medicine.TaxRatePercent);
         Assert.Equal(Now, medicine.CreatedAtUtc);
         Assert.Equal(Now.AddHours(2), medicine.UpdatedAtUtc);
     }
@@ -96,7 +99,8 @@ public class MedicineTests
         var medicine = Medicine.Create("Paracetamol", nowUtc: Now);
 
         Assert.Throws<DomainValidationException>(
-            () => medicine.Update("  ", DosageForm.Tablet, null, null, null, null, null, null, null, Now));
+            () => medicine.Update(
+                "  ", DosageForm.Tablet, null, null, null, null, null, null, null, nowUtc: Now));
 
         Assert.Equal("Paracetamol", medicine.DisplayName);
     }

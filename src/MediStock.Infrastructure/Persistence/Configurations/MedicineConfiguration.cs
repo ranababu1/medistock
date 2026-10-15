@@ -11,9 +11,14 @@ internal sealed class MedicineConfiguration : IEntityTypeConfiguration<Medicine>
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.ToTable("Medicines", table =>
+        {
             table.HasCheckConstraint(
                 "CK_Medicines_ReorderThreshold_NonNegative",
-                "[ReorderThreshold] IS NULL OR [ReorderThreshold] >= 0"));
+                "[ReorderThreshold] IS NULL OR [ReorderThreshold] >= 0");
+            table.HasCheckConstraint(
+                "CK_Medicines_TaxRate_Range",
+                "[TaxRatePercent] >= 0 AND [TaxRatePercent] <= 100");
+        });
 
         builder.HasKey(m => m.Id);
 
@@ -34,6 +39,12 @@ internal sealed class MedicineConfiguration : IEntityTypeConfiguration<Medicine>
             .IsRequired();
 
         builder.Property(m => m.ReorderThreshold).HasPrecision(18, 3);
+
+        // Same shape as SaleLines.TaxRatePercent: a percentage with two decimals, never money.
+        builder.Property(m => m.TaxRatePercent)
+            .HasPrecision(5, 2)
+            .IsRequired();
+
         builder.Property(m => m.IsActive).IsRequired().HasDefaultValue(true);
         builder.Property(m => m.CreatedAtUtc).HasColumnType("datetimeoffset(3)").IsRequired();
         builder.Property(m => m.UpdatedAtUtc).HasColumnType("datetimeoffset(3)").IsRequired();

@@ -7,12 +7,6 @@ namespace MediStock.Infrastructure.Persistence.Configurations;
 
 internal sealed class PurchaseConfiguration : IEntityTypeConfiguration<Purchase>
 {
-    /// <summary>
-    /// Name of the shadow concurrency token. Named here so the migration, the model and any test that
-    /// needs to talk about it all use one spelling.
-    /// </summary>
-    internal const string RowVersionProperty = "RowVersion";
-
     public void Configure(EntityTypeBuilder<Purchase> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -48,7 +42,7 @@ internal sealed class PurchaseConfiguration : IEntityTypeConfiguration<Purchase>
         // Receive at the same moment would each write their own status over a stale read and take the
         // same delivery into stock twice. Mapped as a shadow property because concurrency is a
         // persistence concern and the aggregate has no reason to know about it. See ADR 0006.
-        builder.Property<byte[]>(RowVersionProperty).IsRowVersion();
+        builder.Property<byte[]>(ConcurrencyToken.RowVersion).IsRowVersion();
 
         builder.Property(p => p.InvoiceNumber).HasMaxLength(Purchase.InvoiceNumberMaxLength).IsRequired();
         builder.Property(p => p.Notes).HasMaxLength(Purchase.NotesMaxLength);

@@ -25,6 +25,10 @@ public sealed class TestDatabaseFixture : IAsyncLifetime
 
     private ServiceProvider? _provider;
 
+    /// <summary>An absolute directory, so exported receipts never land in the tester's Documents folder.</summary>
+    public static string ReceiptFolder { get; } =
+        Path.Combine(Path.GetTempPath(), "MediStock-Test-Receipts");
+
     public string ConnectionString { get; } =
         Environment.GetEnvironmentVariable(ConnectionStringVariable) is { Length: > 0 } configured
             ? configured
@@ -44,6 +48,8 @@ public sealed class TestDatabaseFixture : IAsyncLifetime
                 ["MediStock:TimeZoneId"] = TimeZoneInfo.Local.Id,
                 ["MediStock:ApplyMigrationsOnStartup"] = "false",
                 ["MediStock:SeedDevelopmentData"] = "false",
+                // Exported receipts are written here rather than into the tester's Documents folder.
+                ["MediStock:ReceiptFolder"] = ReceiptFolder,
             })
             .Build();
 
