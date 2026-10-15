@@ -11,10 +11,12 @@ public sealed record DashboardSnapshot(
     int LowStockCount,
     int NearExpiryBatchCount,
     int ExpiredBatchCount,
-    decimal InventoryValueAtCost)
+    decimal InventoryValueAtCost,
+    decimal SellableInventoryValueAtCost = 0m,
+    decimal NonSellableInventoryValueAtCost = 0m)
 {
     public static DashboardSnapshot Empty(DateOnly businessDate)
-        => new(businessDate, 0, 0, 0, 0, 0, 0, 0, 0m);
+        => new(businessDate, 0, 0, 0, 0, 0, 0, 0, 0m, 0m, 0m);
 }
 
 /// <summary>A medicine whose total sellable quantity is at or below its reorder threshold.</summary>

@@ -47,15 +47,16 @@ public sealed partial class ShellViewModel : ViewModelBase
             new(NavigationRoutes.NewSale, "NS", "New Sale", "Point of sale and billing", isPlanned: true),
             new(NavigationRoutes.SalesHistory, "SH", "Sales History", "Completed invoices", isPlanned: true),
             new(NavigationRoutes.Medicines, "MD", "Medicines", "Catalogue and pricing defaults"),
-            new(NavigationRoutes.Inventory, "BN", "Inventory & Batches", "Batch stock and expiry", isPlanned: true),
-            new(NavigationRoutes.Purchases, "PU", "Purchases", "Supplier invoices and receiving", isPlanned: true),
-            new(NavigationRoutes.Suppliers, "SU", "Suppliers", "Contacts and purchase history", isPlanned: true),
+            new(NavigationRoutes.Inventory, "BN", "Inventory & Batches", "Batch stock and expiry"),
+            new(NavigationRoutes.Purchases, "PU", "Purchases", "Supplier invoices and receiving"),
+            new(NavigationRoutes.Suppliers, "SU", "Suppliers", "Contacts and purchase history"),
             new(NavigationRoutes.Returns, "RT", "Returns & Adjustments", "Sale returns and write-offs", isPlanned: true),
             new(NavigationRoutes.Reports, "RE", "Reports", "Sales, stock, and valuation", isPlanned: true),
             new(NavigationRoutes.Settings, "SE", "Users & Settings", "Accounts, backup, diagnostics", isPlanned: true),
         };
 
         _navigation.NavigationRequested += OnNavigationRequested;
+
         SelectedNavigationItem = NavigationItems[0];
     }
 
@@ -179,6 +180,9 @@ public sealed partial class ShellViewModel : ViewModelBase
     {
         NavigationRoutes.Dashboard => _services.GetRequiredService<DashboardViewModel>(),
         NavigationRoutes.Medicines => _services.GetRequiredService<MedicinesViewModel>(),
+        NavigationRoutes.Suppliers => _services.GetRequiredService<SuppliersViewModel>(),
+        NavigationRoutes.Purchases => _services.GetRequiredService<PurchasesViewModel>(),
+        NavigationRoutes.Inventory => _services.GetRequiredService<InventoryViewModel>(),
         _ => new PlaceholderViewModel(item, DescribeMilestone(item.RouteKey), _navigation),
     };
 
@@ -186,9 +190,6 @@ public sealed partial class ShellViewModel : ViewModelBase
     {
         NavigationRoutes.NewSale => "Milestone 3 — Point of sale",
         NavigationRoutes.SalesHistory => "Milestone 3 — Point of sale",
-        NavigationRoutes.Inventory => "Milestone 2 — Suppliers and receiving",
-        NavigationRoutes.Purchases => "Milestone 2 — Suppliers and receiving",
-        NavigationRoutes.Suppliers => "Milestone 2 — Suppliers and receiving",
         NavigationRoutes.Returns => "Milestone 4 — Returns, expiry, and reports",
         NavigationRoutes.Reports => "Milestone 4 — Returns, expiry, and reports",
         NavigationRoutes.Settings => "Milestone 5 — Users, security, and operations",

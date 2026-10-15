@@ -8,8 +8,8 @@
     the two agree, so this script compares them and fails loudly when they do not.
 
     It also prints the row counts and the inventory value at cost, which is the quickest way to
-    confirm a fresh database was seeded. Expected seed shape: 10 medicines, 4 suppliers,
-    10 batches, 19 movements.
+    confirm a fresh database was seeded. Expected seed shape: 10 medicines, 4 suppliers, 8 purchases,
+    13 purchase lines, 11 batches, 21 movements.
 
     Supports the Milestone 2 acceptance criterion "stock balances reconcile with movements".
 
@@ -66,6 +66,8 @@ $counts = @'
 SET NOCOUNT ON;
 SELECT 'Medicines' AS Entity, COUNT_BIG(*) FROM Medicines
 UNION ALL SELECT 'Suppliers', COUNT_BIG(*) FROM Suppliers
+UNION ALL SELECT 'Purchases', COUNT_BIG(*) FROM Purchases
+UNION ALL SELECT 'PurchaseLines', COUNT_BIG(*) FROM PurchaseLines
 UNION ALL SELECT 'Batches', COUNT_BIG(*) FROM MedicineBatches
 UNION ALL SELECT 'Movements', COUNT_BIG(*) FROM StockMovements;
 

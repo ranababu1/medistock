@@ -234,14 +234,10 @@ public class ConstraintTests
     {
         var error = await _fixture.InScopeAsync(async services =>
         {
-            var (medicineId, batchId) = await CreateBatchAsync(services);
+            // CreateBatchAsync already recorded the receipt movement, so this batch is pinned by the
+            // foreign key and any attempt to delete it must fail.
+            var (_, batchId) = await CreateBatchAsync(services);
             var db = services.GetRequiredService<MediStockDbContext>();
-
-            var batch = await db.MedicineBatches.FirstAsync(b => b.Id == batchId);
-            db.StockMovements.Add(StockMovement.Record(
-                medicineId, batchId, StockMovementType.Receipt, batch.QuantityReceived, batch.QuantityOnHand,
-                DateOnly.FromDateTime(DateTime.UtcNow), "Test"));
-            await db.SaveChangesAsync();
 
             return await Assert.ThrowsAsync<SqlException>(() => db.Database.ExecuteSqlRawAsync(
                 "DELETE FROM MedicineBatches WHERE Id = {0}", batchId));
@@ -250,11 +246,17 @@ public class ConstraintTests
         Assert.Equal(ConstraintViolation, error.Number);
     }
 
+    /// <summary>
+    /// Creates a medicine and a received batch, together with the receipt movement that balances it.
+    /// The movement is not incidental: every batch in the database must be reconcilable against the
+    /// ledger, so a helper that created stock without a movement would put the test database into a
+    /// state the application itself never produces.
+    /// </summary>
     private async Task<(int MedicineId, int BatchId)> CreateBatchAsync(IServiceProvider services, decimal quantity = 10m)
     {
         var db = services.GetRequiredService<MediStockDbContext>();
         var now = DateTimeOffset.UtcNow;
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var today = BusinessTime.Today;
 
         var medicine = Medicine.Create($"Constraint test {Unique()}", DosageForm.Tablet, nowUtc: now);
         db.Medicines.Add(medicine);
@@ -263,6 +265,10 @@ public class ConstraintTests
         var batch = MedicineBatch.Receive(
             medicine.Id, "B-1", today.AddYears(1), quantity, 1m, 2m, today, nowUtc: now);
         db.MedicineBatches.Add(batch);
+        await db.SaveChangesAsync();
+
+        db.StockMovements.Add(StockMovement.Record(
+            medicine.Id, batch.Id, StockMovementType.Receipt, quantity, batch.QuantityOnHand, today, "Test", nowUtc: now));
         await db.SaveChangesAsync();
 
         return (medicine.Id, batch.Id);

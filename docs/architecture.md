@@ -102,6 +102,9 @@ a complete list of problems in one pass instead of one exception at a time.
 | Persistence | `MediStockDbContext`, `Configurations/*`, `MediStockDbContextFactory` |
 | Persistence/Seeding | `DevelopmentDataSeeder` |
 | Catalogue | `EfMedicineCatalog` |
+| Suppliers | `EfSupplierCatalog` |
+| Purchasing | `EfPurchaseCatalog` |
+| Inventory | `EfStockQueries` |
 | Dashboard | `EfDashboardQueries` |
 | Diagnostics | `SqlServerDatabaseHealthCheck` |
 | Time | `SystemClock` |
@@ -125,8 +128,13 @@ Desktop/
 ├── Logging/FileLoggerProvider.cs      rolling daily file log
 ├── Services/                          INavigationService, IDialogService, NavigationRoutes
 ├── ViewModels/                        ShellViewModel, DashboardViewModel, MedicinesViewModel,
-│                                      MedicineEditorViewModel, PlaceholderViewModel
-└── Views/                             ShellWindow, DashboardView, MedicinesView, PlaceholderView
+│                                      MedicineEditorViewModel, SuppliersViewModel,
+│                                      SupplierEditorViewModel, PurchasesViewModel,
+│                                      PurchaseEditorViewModel, PurchaseLineEditorViewModel,
+│                                      InventoryViewModel, PlaceholderViewModel
+└── Views/                             ShellWindow, DashboardView, MedicinesView, SuppliersView,
+                                       PurchasesView, InventoryView, TextPromptWindow,
+                                       PlaceholderView
 ```
 
 - **Composition root.** `App.OnStartup` builds a `HostApplicationBuilder`, calls
@@ -160,11 +168,34 @@ implementation, and tests substitute a fixed clock where needed.
 are logged with full detail and reported generically. Constraint violations from SQL Server are
 translated at the infrastructure boundary (SQL error 547 = constraint, 2601 = duplicate key).
 
-**Concurrency.** The database is the arbiter. Check constraints, foreign keys and transactions
-enforce the invariants; a UI check is a courtesy, never the guarantee.
+**Concurrency.** The database is the arbiter. Check constraints, foreign keys, transactions and
+concurrency tokens enforce the invariants; a UI check is a courtesy, never the guarantee.
+
+**Conditional lifecycle writes.** A row that carries a lifecycle — today `Purchases`, in Milestone 3
+`Sales` — maps a `rowversion` shadow property as an EF Core concurrency token. EF Core then emits
+`UPDATE … WHERE [Id] = @id AND [RowVersion] = @original` and raises
+`DbUpdateConcurrencyException` when another operation committed first. Because the exception is raised
+inside the unit of work and the code returns without committing, the whole transaction — including any
+batch inserts or quantity decrements — rolls back. The catalog converts it into a message the operator
+can act on ("reload the purchase"), never a stack trace. A write path that mutates a balance without
+such a token is a bug: an unconditional `UPDATE … WHERE [Id] = @id` silently overwrites newer state.
 
 **Transactions.** A sale, its lines, payments and stock movements must commit or roll back together.
 The rule for every future write path is: do not reduce stock before the sale is safely committed.
+
+**Context lifetime.** A desktop application has no request boundary, so a scoped `DbContext` would be
+shared by the whole process and two overlapping `await`s would collide on it. Infrastructure therefore
+registers an `IDbContextFactory<MediStockDbContext>`, and every catalog and query class opens one
+short-lived context per public method. A caller that needs a single context across several steps —
+migrations, the seeder, the integration test fixture — resolves `MediStockDbContext` from its own
+scope and owns its disposal.
+
+**Retries and transactions.** The connection enables `EnableRetryOnFailure`, and EF Core refuses to
+run a statement inside a user-initiated transaction unless the whole unit of work is handed to its
+execution strategy. Every write path that opens a transaction therefore runs it through
+`Database.CreateExecutionStrategy().ExecuteAsync(...)`, clears the change tracker at the start of each
+attempt, and performs reloading and logging only after the strategy. See
+[ADR 0006](decisions/0006-context-lifetime-and-execution-strategy.md).
 
 ## 5. Testing
 
@@ -172,7 +203,7 @@ The rule for every future write path is: do not reduce stock before the sale is 
 |---|---|---|
 | Unit | `MediStock.Domain.Tests` | Pure rules: money, guards, catalogue validation, expiry policy, FEFO ordering, batch balances, movement invariants. No database. |
 | Unit | `MediStock.Application.Tests` | DTO/draft normalisation and `OperationResult` semantics. |
-| Integration | `MediStock.IntegrationTests` | Real SQL Server: migrations, every named check constraint/index, catalogue CRUD and search. |
+| Integration | `MediStock.IntegrationTests` | Real SQL Server: migrations, every named check constraint/index, catalogue CRUD and search, the receiving workflow end to end. |
 
 `TestDatabaseFixture` creates `MediStock_Test` (override with `MEDISTOCK_TEST_CONNECTION`), applies
 migrations, exposes a scope per test, and drops the database on teardown. It never touches a

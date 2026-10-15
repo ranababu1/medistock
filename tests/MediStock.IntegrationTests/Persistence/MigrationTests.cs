@@ -78,7 +78,16 @@ public class MigrationTests
         });
 
         Assert.Equal(
-            new[] { "MedicineBatches", "Medicines", "StockMovements", "Suppliers", "__EFMigrationsHistory" },
+            new[]
+            {
+                "MedicineBatches",
+                "Medicines",
+                "PurchaseLines",
+                "Purchases",
+                "StockMovements",
+                "Suppliers",
+                "__EFMigrationsHistory",
+            },
             tables);
     }
 }

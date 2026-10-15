@@ -64,6 +64,17 @@ public class MedicineBatch
     public bool IsSellableOn(DateOnly businessDate)
         => ExpiryPolicy.IsSellable(Status, ExpiryDate, QuantityOnHand, businessDate);
 
+    /// <summary>
+    /// True while this batch can still be taken back out of stock by reversing its receipt: nothing
+    /// has been sold or adjusted out of it, and it has not been recalled or written off.
+    /// </summary>
+    /// <remarks>
+    /// A batch that later expired is still reversible — only its status changed, and the stock is
+    /// physically still there, so reversing a mis-keyed expiry date is possible.
+    /// </remarks>
+    public bool IsReversibleReceipt =>
+        QuantityOnHand == QuantityReceived && Status is not (BatchStatus.Recalled or BatchStatus.WrittenOff);
+
     public static MedicineBatch Receive(
         int medicineId,
         string batchNumber,

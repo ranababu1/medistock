@@ -32,13 +32,16 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
         m.CreatedAtUtc,
         m.UpdatedAtUtc);
 
-    private readonly MediStockDbContext _db;
+    private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
     private readonly ILogger<EfMedicineCatalog> _logger;
 
-    public EfMedicineCatalog(MediStockDbContext db, IClock clock, ILogger<EfMedicineCatalog> logger)
+    public EfMedicineCatalog(
+        IDbContextFactory<MediStockDbContext> factory,
+        IClock clock,
+        ILogger<EfMedicineCatalog> logger)
     {
-        _db = db ?? throw new ArgumentNullException(nameof(db));
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -49,7 +52,9 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var source = _db.Medicines.AsNoTracking();
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        var source = db.Medicines.AsNoTracking();
 
         if (!query.IncludeInactive)
         {
@@ -80,16 +85,22 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
     }
 
     public async Task<MedicineDto?> FindAsync(int medicineId, CancellationToken cancellationToken = default)
-        => await _db.Medicines
+    {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        return await db.Medicines
             .AsNoTracking()
             .Where(m => m.Id == medicineId)
             .Select(Projection)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
 
     public async Task<int> CountAsync(bool includeInactive, CancellationToken cancellationToken = default)
     {
-        var source = _db.Medicines.AsNoTracking();
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        var source = db.Medicines.AsNoTracking();
         if (!includeInactive)
         {
             source = source.Where(m => m.IsActive);
@@ -104,6 +115,8 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
     {
         ArgumentNullException.ThrowIfNull(draft);
 
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
         Medicine medicine;
         try
         {
@@ -114,15 +127,15 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
             return OperationResult<MedicineDto>.Fail(ex.Message);
         }
 
-        _db.Medicines.Add(medicine);
+        db.Medicines.Add(medicine);
 
         try
         {
-            await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException ex) when (TryDescribeConstraintViolation(ex, out var message))
         {
-            _db.Entry(medicine).State = EntityState.Detached;
+            db.Entry(medicine).State = EntityState.Detached;
             return OperationResult<MedicineDto>.Fail(message);
         }
 
@@ -138,7 +151,9 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
     {
         ArgumentNullException.ThrowIfNull(draft);
 
-        var medicine = await _db.Medicines
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        var medicine = await db.Medicines
             .FirstOrDefaultAsync(m => m.Id == medicineId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -158,7 +173,7 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
 
         try
         {
-            await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException ex) when (TryDescribeConstraintViolation(ex, out var message))
         {
@@ -175,7 +190,9 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
         bool isActive,
         CancellationToken cancellationToken = default)
     {
-        var medicine = await _db.Medicines
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        var medicine = await db.Medicines
             .FirstOrDefaultAsync(m => m.Id == medicineId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -195,7 +212,7 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
 
         try
         {
-            await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException ex) when (TryDescribeConstraintViolation(ex, out var message))
         {
@@ -218,6 +235,8 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
     {
         ArgumentNullException.ThrowIfNull(draft);
 
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
         var name = Normalise(draft.DisplayName);
         var barcode = Normalise(draft.Barcode);
         var generic = Normalise(draft.GenericName);
@@ -229,7 +248,7 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
             return [];
         }
 
-        var source = _db.Medicines.AsNoTracking();
+        var source = db.Medicines.AsNoTracking();
         if (excludeMedicineId is { } excluded)
         {
             source = source.Where(m => m.Id != excluded);

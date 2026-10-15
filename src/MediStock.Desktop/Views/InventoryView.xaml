@@ -1,0 +1,263 @@
+<UserControl x:Class="MediStock.Desktop.Views.InventoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MediStock.Desktop.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:InventoryViewModel}"
+             d:DesignHeight="700"
+             d:DesignWidth="1100"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid Margin="24,20,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Inventory &amp; Batches" Style="{StaticResource PageTitleText}" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0"
+                           Text="Every batch received, what is left on the shelf, and the ledger entries that produced that balance." />
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    Content="Check balances"
+                    Style="{StaticResource SecondaryButton}"
+                    Command="{Binding RunReconciliationCommand}"
+                    IsEnabled="{Binding IsNotBusy}"
+                    VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- Metrics -->
+        <UniformGrid Grid.Row="1" Rows="1" Columns="4" Margin="0,0,0,14">
+            <Border Style="{StaticResource MetricCard}" Margin="0,0,8,0">
+                <StackPanel>
+                    <TextBlock Text="Batches listed" Style="{StaticResource CaptionText}" />
+                    <TextBlock Text="{Binding BatchCountText}" Style="{StaticResource MetricValueText}" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource MetricCard}" Margin="8,0,8,0">
+                <StackPanel>
+                    <TextBlock Text="Stock at cost" Style="{StaticResource CaptionText}" />
+                    <TextBlock Text="{Binding StockValueText}" Style="{StaticResource MetricValueText}" />
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               TextWrapping="Wrap"
+                               Text="Includes stock that may no longer be dispensed." />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource MetricCard}" Margin="8,0,8,0">
+                <StackPanel>
+                    <TextBlock Text="Sellable at cost" Style="{StaticResource CaptionText}" />
+                    <TextBlock Text="{Binding SellableValueText}" Style="{StaticResource MetricValueText}" />
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               TextWrapping="Wrap"
+                               Text="Active, in stock, and not past its expiry date." />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource MetricCard}" Margin="8,0,0,0">
+                <StackPanel>
+                    <TextBlock Text="Needs attention" Style="{StaticResource CaptionText}" />
+                    <TextBlock Text="{Binding UnavailableText}" Style="{StaticResource MetricValueText}" />
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               TextWrapping="Wrap"
+                               Text="{Binding ExpiringSoonText, StringFormat={}{0} batches expire within 90 days.}" />
+                </StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <!-- Reconciliation banner -->
+        <Border Grid.Row="2"
+                Margin="0,0,0,14"
+                Padding="12"
+                CornerRadius="6"
+                Visibility="{Binding HasReconciliationRun, Converter={StaticResource BoolToVisibility}}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsReconciled}" Value="False">
+                            <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <TextBlock Text="{Binding ReconciliationMessage}" TextWrapping="Wrap" FontSize="12">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+                        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReconciled}" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Border>
+
+        <!-- Filters -->
+        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="14" Margin="0,0,0,14">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" MinWidth="150" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" MinWidth="170" />
+                </Grid.ColumnDefinitions>
+
+                <TextBox Grid.Row="0" Grid.Column="0"
+                         Style="{StaticResource ThemedTextBox}"
+                         Text="{Binding SearchTerm, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Search by medicine name, generic name or batch number">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+                    </TextBox.InputBindings>
+                </TextBox>
+
+                <ComboBox Grid.Row="0" Grid.Column="2"
+                          Style="{StaticResource ThemedComboBox}"
+                          ItemsSource="{Binding StatusFilters}"
+                          SelectedItem="{Binding SelectedStatusFilter}"
+                          ToolTip="Filter by batch status" />
+
+                <ComboBox Grid.Row="0" Grid.Column="4"
+                          Style="{StaticResource ThemedComboBox}"
+                          ItemsSource="{Binding ExpiryFilters}"
+                          SelectedItem="{Binding SelectedExpiryFilter}"
+                          ToolTip="Filter by how soon the batch expires" />
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5"
+                            Orientation="Horizontal" Margin="0,10,0,0">
+                    <CheckBox Style="{StaticResource ThemedCheckBox}"
+                              Content="Only batches with stock on hand"
+                              IsChecked="{Binding InStockOnly}" />
+
+                    <Button Content="Search"
+                            Style="{StaticResource SecondaryButton}"
+                            Margin="16,0,0,0"
+                            Command="{Binding SearchCommand}" />
+                    <Button Content="Clear filters"
+                            Style="{StaticResource SecondaryButton}"
+                            Margin="8,0,0,0"
+                            Command="{Binding ClearFiltersCommand}" />
+
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               Margin="16,0,0,0"
+                               VerticalAlignment="Center"
+                               Text="{Binding ResultSummary}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Batches and movements -->
+        <Grid Grid.Row="4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="1.3*" MinHeight="170" />
+                <RowDefinition Height="10" />
+                <RowDefinition Height="*" MinHeight="160" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Style="{StaticResource Card}" Padding="0">
+                <Grid>
+                    <DataGrid ItemsSource="{Binding Batches}"
+                              SelectedItem="{Binding SelectedBatch, Mode=TwoWay}"
+                              Style="{StaticResource ThemedDataGrid}"
+                              BorderThickness="0"
+                              IsReadOnly="True"
+                              AlternationCount="2">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="1.6*" />
+                            <DataGridTextColumn Header="Batch" Binding="{Binding BatchNumber}" Width="Auto" />
+                            <DataGridTextColumn Header="Expiry"
+                                                Binding="{Binding ExpiryDate, StringFormat=yyyy-MM-dd}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="Days left" Binding="{Binding DaysUntilExpiry}" Width="Auto" />
+                            <DataGridTextColumn Header="Received"
+                                                Binding="{Binding ReceivedOn, StringFormat=yyyy-MM-dd}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="On hand"
+                                                Binding="{Binding QuantityOnHand, StringFormat=N3}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="Cost"
+                                                Binding="{Binding PurchaseCost, StringFormat=N2}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="Value"
+                                                Binding="{Binding ValueAtCost, StringFormat=N2}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="Auto" />
+                            <DataGridTextColumn Header="Supplier" Binding="{Binding SupplierName}" Width="Auto" />
+                            <DataGridTextColumn Header="Sellable" Binding="{Binding IsSellable}" Width="Auto" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               MaxWidth="340"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               Text="No batches match these filters. Clear the filters, or receive a purchase to put stock on the shelf."
+                               Visibility="{Binding HasNoResults, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="2" Style="{StaticResource Card}" Padding="14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="{Binding MovementHeading}" Style="{StaticResource SectionHeaderText}" />
+                        <TextBlock Text="{Binding MovementSummary}"
+                                   Style="{StaticResource CaptionText}"
+                                   Margin="10,0,0,0"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <DataGrid Grid.Row="1"
+                              ItemsSource="{Binding Movements}"
+                              Style="{StaticResource ThemedDataGrid}"
+                              BorderThickness="0"
+                              IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Business date"
+                                                Binding="{Binding BusinessDate, StringFormat=yyyy-MM-dd}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="1.5*" />
+                            <DataGridTextColumn Header="Batch" Binding="{Binding BatchNumber}" Width="Auto" />
+                            <DataGridTextColumn Header="Movement" Binding="{Binding MovementType}" Width="Auto" />
+                            <DataGridTextColumn Header="Change"
+                                                Binding="{Binding QuantityDelta, StringFormat=N3}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="After"
+                                                Binding="{Binding QuantityAfter, StringFormat=N3}"
+                                                Width="Auto" />
+                            <DataGridTextColumn Header="By" Binding="{Binding PerformedBy}" Width="Auto" />
+                            <DataGridTextColumn Header="Reference" Binding="{Binding Reference}" Width="Auto" />
+                            <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="1.5*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

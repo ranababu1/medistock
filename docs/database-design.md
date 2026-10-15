@@ -174,6 +174,110 @@ lets the reporting indexes stay covering. It is written by the domain code that 
 so it cannot drift. No foreign key is declared because `Restrict` on two paths to the same graph
 adds no safety the application does not already provide.
 
+### 3.5 `Purchases`
+
+A supplier invoice: the document that a delivery is received against. Receiving is the only operation
+in MediStock that creates stock from outside the pharmacy, so the header carries the whole lifecycle
+of that act — who confirmed it, when, and if it was later undone, why.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | no | PK |
+| `SupplierId` | `int` | no | FK → `Suppliers.Id` (`Restrict`) |
+| `InvoiceNumber` | `nvarchar(64)` | no | The supplier's own number; see the note below |
+| `InvoiceDate` | `date` | no | Date printed on the supplier's invoice |
+| `Notes` | `nvarchar(1000)` | yes | |
+| `Status` | `int` | no | `1`=Draft, `2`=Received, `3`=Reversed, `4`=Cancelled |
+| `ReceivedOn` | `date` | yes | Business date the goods were taken into stock |
+| `ReceivedAtUtc` | `datetimeoffset(3)` | yes | |
+| `ReceivedBy` | `nvarchar(150)` | yes | Operator, until named users arrive in Milestone 5 |
+| `ClosedAtUtc` | `datetimeoffset(3)` | yes | When the purchase was cancelled or reversed |
+| `ClosedBy` | `nvarchar(150)` | yes | Who cancelled or reversed it |
+| `StatusReason` | `nvarchar(300)` | yes | Why it was cancelled or reversed |
+| `CreatedAtUtc` | `datetimeoffset(3)` | no | |
+| `UpdatedAtUtc` | `datetimeoffset(3)` | no | |
+| `RowVersion` | `rowversion` | no | Concurrency token; see "Conditional lifecycle writes" below |
+
+**Indexes and constraints**
+
+| Name | Definition |
+|---|---|
+| `FK_Purchases_Suppliers_SupplierId` | `SupplierId → Suppliers.Id`, `Restrict` |
+| `CK_Purchases_Status_Valid` | `Status BETWEEN 1 AND 4` |
+| `CK_Purchases_Lifecycle_Consistent` | Each status is only legal together with the timestamps that justify it, see below |
+| `IX_Purchases_InvoiceDate` | Date-range reports |
+| `IX_Purchases_Status` | Draft and received lists |
+| `IX_Purchases_SupplierId_InvoiceNumber` | Duplicate-invoice lookup |
+| `RowVersion` | `rowversion`, read by EF Core as a concurrency token on every update of the header |
+
+`CK_Purchases_Lifecycle_Consistent` is the constraint that makes the status column trustworthy:
+
+```sql
+([Status] = 1 AND [ReceivedOn] IS NULL AND [ReceivedAtUtc] IS NULL AND [ReceivedBy] IS NULL
+             AND [ClosedAtUtc] IS NULL AND [ClosedBy] IS NULL AND [StatusReason] IS NULL)
+OR ([Status] = 2 AND [ReceivedOn] IS NOT NULL AND [ReceivedAtUtc] IS NOT NULL AND [ReceivedBy] IS NOT NULL
+             AND [ClosedAtUtc] IS NULL AND [ClosedBy] IS NULL AND [StatusReason] IS NULL)
+OR ([Status] = 4 AND [ReceivedOn] IS NULL AND [ReceivedAtUtc] IS NULL AND [ReceivedBy] IS NULL
+             AND [ClosedAtUtc] IS NOT NULL AND [ClosedBy] IS NOT NULL AND [StatusReason] IS NOT NULL)
+OR ([Status] = 3 AND [ReceivedOn] IS NOT NULL AND [ReceivedAtUtc] IS NOT NULL AND [ReceivedBy] IS NOT NULL
+             AND [ClosedAtUtc] IS NOT NULL AND [ClosedBy] IS NOT NULL AND [StatusReason] IS NOT NULL)
+```
+
+A received purchase must still name the operator and the date it was received, and a reversed one must
+keep them: the correction does not erase the fact that the stock was once taken in. A draft cannot
+carry a reason for closing, and a cancelled purchase cannot claim it was ever received.
+
+**`InvoiceNumber` is deliberately not unique.** Two suppliers can legitimately print the same number,
+and the same invoice can be entered twice by mistake — which is a conversation to have with the
+operator, not a wall. `IX_Purchases_SupplierId_InvoiceNumber` backs the lookup that raises the warning
+(`IPurchaseCatalog.FindByInvoiceAsync`). The protection against taking the same delivery into stock
+twice is the lifecycle (`Receive` refuses anything that is not a `Draft`) **and**, for two operators
+acting at the same moment, the rowversion below.
+
+**Conditional lifecycle writes.** Every update of this header carries `WHERE [Id] = @id AND
+[RowVersion] = @original`, because `RowVersion` is mapped as an EF Core concurrency token
+(`PurchaseConfiguration`). A caller that read the purchase before another caller changed it therefore
+matches no row, its transaction is never committed, and `EfPurchaseCatalog` returns
+*"Another operator changed this purchase while you were working on it…"* instead of a stack trace.
+Without it, a lifecycle transition is a blind `UPDATE … WHERE [Id] = @id` that overwrites whatever the
+row now holds: two simultaneous receives of one invoice would each create their own batch for the same
+line, and a `Cancel` whose read predated a committed receive would write `Cancelled` over `Received`,
+leaving stock on the shelf that `CanReverse` then refuses to reverse. See
+[ADR 0006](decisions/0006-context-lifetime-and-execution-strategy.md).
+
+### 3.6 `PurchaseLines`
+
+One medicine on the invoice, and — once received — the batch it created.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | no | PK |
+| `PurchaseId` | `int` | no | FK → `Purchases.Id` (`Cascade`) |
+| `MedicineId` | `int` | no | FK → `Medicines.Id` (`Restrict`) |
+| `BatchNumber` | `nvarchar(64)` | no | As printed by the manufacturer |
+| `ExpiryDate` | `date` | no | Must be after the receiving date |
+| `Quantity` | `decimal(18,3)` | no | Ordered. Positive |
+| `QuantityReceived` | `decimal(18,3)` | no | `0` while drafted, equal to `Quantity` from receiving onwards |
+| `UnitCost` | `decimal(18,2)` | no | Becomes `MedicineBatches.PurchaseCost` |
+| `SellingPrice` | `decimal(18,2)` | no | Becomes `MedicineBatches.SellingPrice` |
+| `MedicineBatchId` | `int` | yes | FK → `MedicineBatches.Id` (`Restrict`); the batch this line created |
+
+| Name | Definition |
+|---|---|
+| `UX_PurchaseLines_Purchase_Medicine_Batch` | Unique on `(PurchaseId, MedicineId, BatchNumber)` |
+| `CK_PurchaseLines_Quantity_Positive` | `Quantity > 0` |
+| `CK_PurchaseLines_QuantityReceived_Within` | `QuantityReceived >= 0 AND QuantityReceived <= Quantity` |
+| `CK_PurchaseLines_Costs_NonNegative` | `UnitCost >= 0 AND SellingPrice >= 0` |
+| `IX_PurchaseLines_MedicineId` | Medicine purchase history |
+| `IX_PurchaseLines_MedicineBatchId` | Reverse a purchase from its batches |
+
+`QuantityReceived` is separate from `Quantity` even though receiving is currently all-or-nothing. It
+costs one column and means partial receiving can be added later as a behaviour change instead of a
+schema change. `MedicineBatchId` is **kept after a reversal** so the purchase stays traceable to the
+stock it once brought in.
+
+A zero `UnitCost` is allowed — suppliers do send free items, and the line still has to be counted.
+
 ## 4. Invariants
 
 These must hold after every committed transaction. Each is enforced by the constraint named, and
@@ -194,10 +298,16 @@ each is asserted by an integration test.
 | I11 | A barcode is unique when present | `UX_Medicines_Barcode` (filtered unique) |
 | I12 | Supplier name and GSTIN are unique | `UX_Suppliers_Name`, `UX_Suppliers_Gstin` |
 | I13 | `QuantityOnHand` equals the sum of `QuantityDelta` for the batch | Application + reconciliation query (§5) |
+| I14 | A purchase status is always consistent with its own timestamps | `CK_Purchases_Lifecycle_Consistent` |
+| I15 | A purchase line is never received for more than was ordered | `CK_PurchaseLines_QuantityReceived_Within` |
+| I16 | One purchase cannot carry the same medicine and batch number twice | `UX_PurchaseLines_Purchase_Medicine_Batch` |
+| I17 | A line points at a batch that exists, and a purchase at a supplier that exists | FKs `Restrict` |
+| I18 | A lifecycle transition never overwrites a state another operation has already committed | `Purchases.RowVersion` + conditional update in `EfPurchaseCatalog` |
 
-I13 is the only invariant the schema cannot express, because it spans rows. The plan's requirement
-is met by (a) the domain type refusing to mutate a balance without recording a movement and
-(b) the reconciliation query below, which the Milestone 2 work will surface as a health view.
+I13 is the only invariant the schema cannot express, because it spans rows. It is met by (a) the domain
+type refusing to mutate a balance without recording a movement and (b) the reconciliation query below,
+which the reconciliation script surfaces as a health check. I18 is conditional rather than declarative:
+the token is a column, but the check lives in the `WHERE` clause the token generates.
 
 ## 5. Reconciliation and reporting queries
 
@@ -272,6 +382,8 @@ reconciliation query in §5 is the guard.
 | Migration | Purpose |
 |---|---|
 | `20261015214039_InitialCreate` | `Medicines`, `Suppliers`, `MedicineBatches`, `StockMovements` and every constraint above |
+| `20261015215632_PurchasingAndReceiving` | `Purchases`, `PurchaseLines` and the constraints in §3.5–3.6 |
+| `20261015222213_PurchaseRowVersion` | `Purchases.RowVersion`, the concurrency token behind invariant I18 |
 
 ```powershell
 dotnet ef migrations add <Name> --project src\MediStock.Infrastructure --startup-project src\MediStock.Desktop
@@ -289,10 +401,16 @@ where the plan's shape is ambiguous.
 
 | Milestone | Tables |
 |---|---|
-| 2 | `PurchaseHeaders`, `PurchaseLines`, `GoodsReceipts`, `GoodsReceiptLines`, `StockMovementReasons` |
 | 3 | `Sales`, `SaleLines`, `SaleLineBatchAllocations`, `Payments`, `InvoiceSequences` |
-| 4 | `SalesReturns`, `SalesReturnLines`, `SupplierReturns`, `SupplierReturnLines`, `StockAdjustments` |
+| 4 | `SalesReturns`, `SalesReturnLines`, `SupplierReturns`, `SupplierReturnLines` |
 | 5 | `Users`, `Roles`, `UserRoles`, `AuditLogs`, `ApplicationSettings` |
+
+Two departures from the plan's original list are deliberate and recorded in
+[ADR 0005](decisions/0005-no-purchase-orders-or-goods-receipts.md): Milestone 2 ships **no**
+`PurchaseHeaders`, `GoodsReceipts`, `GoodsReceiptLines`, `StockMovementReasons` or
+`StockAdjustments` tables. The first three collapsed into `Purchases` and `PurchaseLines`, and the
+last two are not needed while every adjustment already carries its own typed movement and reason
+(§3.4).
 
 `InvoiceSequences` will use a transactional counter row (or a SQL `SEQUENCE`) so invoice numbers stay
 unique under concurrency — never `MAX(Number) + 1`.

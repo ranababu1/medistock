@@ -100,6 +100,9 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<ShellViewModel>();
         builder.Services.AddTransient<DashboardViewModel>();
         builder.Services.AddTransient<MedicinesViewModel>();
+        builder.Services.AddTransient<SuppliersViewModel>();
+        builder.Services.AddTransient<PurchasesViewModel>();
+        builder.Services.AddTransient<InventoryViewModel>();
 
         return builder.Build();
     }

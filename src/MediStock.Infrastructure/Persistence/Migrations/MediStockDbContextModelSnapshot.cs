@@ -249,6 +249,146 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MediStock.Domain.Purchasing.Purchase", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset?>("ClosedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<string>("ClosedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<DateOnly>("InvoiceDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("ReceivedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<string>("ReceivedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateOnly?>("ReceivedOn")
+                        .HasColumnType("date");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StatusReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceDate")
+                        .HasDatabaseName("IX_Purchases_InvoiceDate");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_Purchases_Status");
+
+                    b.HasIndex("SupplierId", "InvoiceNumber")
+                        .HasDatabaseName("IX_Purchases_SupplierId_InvoiceNumber");
+
+                    b.ToTable("Purchases", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Purchases_Lifecycle_Consistent", "([Status] = 1 AND [ReceivedOn] IS NULL AND [ReceivedAtUtc] IS NULL AND [ReceivedBy] IS NULL\r\n            AND [ClosedAtUtc] IS NULL AND [ClosedBy] IS NULL AND [StatusReason] IS NULL)\r\nOR ([Status] = 2 AND [ReceivedOn] IS NOT NULL AND [ReceivedAtUtc] IS NOT NULL AND [ReceivedBy] IS NOT NULL\r\n            AND [ClosedAtUtc] IS NULL AND [ClosedBy] IS NULL AND [StatusReason] IS NULL)\r\nOR ([Status] = 4 AND [ReceivedOn] IS NULL AND [ReceivedAtUtc] IS NULL AND [ReceivedBy] IS NULL\r\n            AND [ClosedAtUtc] IS NOT NULL AND [ClosedBy] IS NOT NULL AND [StatusReason] IS NOT NULL)\r\nOR ([Status] = 3 AND [ReceivedOn] IS NOT NULL AND [ReceivedAtUtc] IS NOT NULL AND [ReceivedBy] IS NOT NULL\r\n            AND [ClosedAtUtc] IS NOT NULL AND [ClosedBy] IS NOT NULL AND [StatusReason] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Purchases_Status_Valid", "[Status] BETWEEN 1 AND 4");
+                        });
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Purchasing.PurchaseLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BatchNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateOnly>("ExpiryDate")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("MedicineBatchId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MedicineId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PurchaseId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("QuantityReceived")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<decimal>("SellingPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MedicineBatchId")
+                        .HasDatabaseName("IX_PurchaseLines_MedicineBatchId");
+
+                    b.HasIndex("MedicineId")
+                        .HasDatabaseName("IX_PurchaseLines_MedicineId");
+
+                    b.HasIndex("PurchaseId", "MedicineId", "BatchNumber")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PurchaseLines_Purchase_Medicine_Batch");
+
+                    b.ToTable("PurchaseLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseLines_Costs_NonNegative", "[UnitCost] >= 0 AND [SellingPrice] >= 0");
+
+                            t.HasCheckConstraint("CK_PurchaseLines_QuantityReceived_Within", "[QuantityReceived] >= 0 AND [QuantityReceived] <= [Quantity]");
+
+                            t.HasCheckConstraint("CK_PurchaseLines_Quantity_Positive", "[Quantity] > 0");
+                        });
+                });
+
             modelBuilder.Entity("MediStock.Domain.Suppliers.Supplier", b =>
                 {
                     b.Property<int>("Id")
@@ -354,6 +494,48 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("MedicineBatch");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Purchasing.Purchase", b =>
+                {
+                    b.HasOne("MediStock.Domain.Suppliers.Supplier", "Supplier")
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Supplier");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Purchasing.PurchaseLine", b =>
+                {
+                    b.HasOne("MediStock.Domain.Inventory.MedicineBatch", "MedicineBatch")
+                        .WithMany()
+                        .HasForeignKey("MedicineBatchId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MediStock.Domain.Catalogue.Medicine", "Medicine")
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MediStock.Domain.Purchasing.Purchase", "Purchase")
+                        .WithMany("Lines")
+                        .HasForeignKey("PurchaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Medicine");
+
+                    b.Navigation("MedicineBatch");
+
+                    b.Navigation("Purchase");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Purchasing.Purchase", b =>
+                {
+                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }

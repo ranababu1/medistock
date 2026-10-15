@@ -47,26 +47,38 @@ when each one is done. Update the state column as work lands; do not reorder the
 
 ---
 
-## Milestone 2 — Suppliers and receiving inventory ⏳
+## Milestone 2 — Suppliers and receiving inventory ✅
 
 **Tasks**
 
-- Implement suppliers.
-- Implement purchase records and receiving.
-- Create batch records from received goods.
-- Implement stock movement history.
-- Add stock balance reconciliation.
+- ✅ Implement suppliers.
+- ✅ Implement purchase records and receiving.
+- ✅ Create batch records from received goods.
+- ✅ Implement stock movement history.
+- ✅ Add stock balance reconciliation.
 
 **Acceptance criteria**
 
-- Receiving stock creates the correct batches and movements.
-- Repeated submission cannot accidentally receive the same invoice twice without a clear warning or
+- ✅ Receiving stock creates the correct batches and movements.
+- ✅ Repeated submission cannot accidentally receive the same invoice twice without a clear warning or
   idempotency check.
-- Stock balances reconcile with movements.
-- Expiry dates and quantities are validated.
+- ✅ Stock balances reconcile with movements.
+- ✅ Expiry dates and quantities are validated.
 
-**Present state:** `Suppliers`, `MedicineBatches` and `StockMovements` exist with full constraints and
-domain behaviour; the purchase tables, the receiving workflow and the UI are not built.
+**Evidence:** `tests\MediStock.IntegrationTests\Purchasing\PurchaseCatalogTests.cs` covers the
+receiving workflow end to end — including two receives racing for the same invoice, two reversals
+racing for the same receipt, and a stale copy of a received purchase being written back — and
+`scripts\dev\check-reconciliation.ps1` prints the live cached-versus-ledger totals for the development
+database. A code review of this milestone found that a lifecycle transition was being issued as an
+unconditional `UPDATE … WHERE [Id] = @id`, which let a losing writer commit over a winning one; the
+remedy was a `rowversion` concurrency token on `Purchases` (migration
+`20261015222213_PurchaseRowVersion`) and a single execution-strategy helper that turns the resulting
+`DbUpdateConcurrencyException` into an operator-facing refusal. Three decisions shaped this milestone:
+[ADR 0005](decisions/0005-no-purchase-orders-or-goods-receipts.md) (one purchase document, no goods
+receipts),
+[ADR 0006](decisions/0006-context-lifetime-and-execution-strategy.md) (context lifetime, the
+execution-strategy contract, and conditional lifecycle writes) and
+[ADR 0003](decisions/0003-inventory-valuation.md) (valuation).
 
 ---
 

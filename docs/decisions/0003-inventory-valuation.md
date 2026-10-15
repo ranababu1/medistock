@@ -94,7 +94,7 @@ The dashboard surfaces this as `DashboardSnapshot.InventoryValueAtCost`. The nam
 
 | Item | Milestone | Note |
 |---|---|---|
-| Split the dashboard figure into **sellable** and **non-sellable** value | 2 | `Status = 1 AND ExpiryDate >= @businessDate` versus the rest |
+| Split the dashboard figure into **sellable** and **non-sellable** value | 2 | **Done.** `DashboardSnapshot.SellableInventoryValueAtCost` and `NonSellableInventoryValueAtCost`, split with `ExpiryPolicy.IsSellable`, and shown under the total on the dashboard |
 | Valuation report with a valuation-date parameter | 4 | Must reuse this exact expression, not re-derive it |
 | Sell-through value of expired stock, to quantify waste | 4 | Useful before deciding disposal procedures |
 | Cost of goods sold from consumed movements | 3 | Needed for gross margin; do not approximate it from the current figure |

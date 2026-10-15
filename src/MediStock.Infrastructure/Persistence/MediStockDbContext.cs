@@ -1,5 +1,6 @@
 using MediStock.Domain.Catalogue;
 using MediStock.Domain.Inventory;
+using MediStock.Domain.Purchasing;
 using MediStock.Domain.Suppliers;
 using Microsoft.EntityFrameworkCore;
 
@@ -28,6 +29,10 @@ public class MediStockDbContext : DbContext
     public DbSet<MedicineBatch> MedicineBatches => Set<MedicineBatch>();
 
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+
+    public DbSet<Purchase> Purchases => Set<Purchase>();
+
+    public DbSet<PurchaseLine> PurchaseLines => Set<PurchaseLine>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

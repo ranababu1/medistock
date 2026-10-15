@@ -3,11 +3,17 @@ using MediStock.Application.Common;
 using MediStock.Application.Configuration;
 using MediStock.Application.Dashboard;
 using MediStock.Application.Diagnostics;
+using MediStock.Application.Inventory;
+using MediStock.Application.Purchasing;
+using MediStock.Application.Suppliers;
 using MediStock.Infrastructure.Catalogue;
 using MediStock.Infrastructure.Dashboard;
 using MediStock.Infrastructure.Diagnostics;
+using MediStock.Infrastructure.Inventory;
 using MediStock.Infrastructure.Persistence;
 using MediStock.Infrastructure.Persistence.Seeding;
+using MediStock.Infrastructure.Purchasing;
+using MediStock.Infrastructure.Suppliers;
 using MediStock.Infrastructure.Time;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -43,25 +49,43 @@ public static class DependencyInjection
 
         var connectionString = ResolveConnectionString(configuration);
 
-        services.AddDbContext<MediStockDbContext>(options => options
-            .UseSqlServer(connectionString, sql =>
-            {
-                sql.MigrationsAssembly(typeof(MediStockDbContext).Assembly.FullName);
-                sql.EnableRetryOnFailure(
-                    maxRetryCount: 3,
-                    maxRetryDelay: TimeSpan.FromSeconds(5),
-                    errorNumbersToAdd: null);
-                sql.CommandTimeout(60);
-            }));
+        // A desktop application has no request boundary, so every catalog would otherwise share one
+        // context for the life of the process and overlapping async work would collide on it. The
+        // factory hands each operation its own context instead.
+        services.AddDbContextFactory<MediStockDbContext>(options => ConfigureDatabase(options, connectionString));
+
+        // Kept so one context can still be resolved when a caller owns it explicitly — migrations, the
+        // development seeder and the integration tests. The caller's scope owns and disposes it.
+        services.AddScoped(provider => provider
+            .GetRequiredService<IDbContextFactory<MediStockDbContext>>()
+            .CreateDbContext());
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<IMedicineCatalog, EfMedicineCatalog>();
+        services.AddScoped<ISupplierCatalog, EfSupplierCatalog>();
+        services.AddScoped<IPurchaseCatalog, EfPurchaseCatalog>();
+        services.AddScoped<IStockQueries, EfStockQueries>();
         services.AddScoped<IDashboardQueries, EfDashboardQueries>();
         services.AddScoped<IDatabaseHealthCheck, SqlServerDatabaseHealthCheck>();
         services.AddScoped<DevelopmentDataSeeder>();
 
         return services;
     }
+
+    /// <summary>
+    /// Single place that decides how a context talks to SQL Server, so a context obtained from the
+    /// factory and one resolved directly behave identically.
+    /// </summary>
+    private static void ConfigureDatabase(DbContextOptionsBuilder options, string connectionString)
+        => options.UseSqlServer(connectionString, sql =>
+        {
+            sql.MigrationsAssembly(typeof(MediStockDbContext).Assembly.FullName);
+            sql.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorNumbersToAdd: null);
+            sql.CommandTimeout(60);
+        });
 
     /// <summary>
     /// Prefers the <c>MEDISTOCK_CONNECTION</c> environment variable, then configuration, so a

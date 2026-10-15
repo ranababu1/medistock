@@ -16,7 +16,7 @@ convenience second, advanced features third**.
 |---|---|---|
 | **0** | Environment, solution, DI, logging, application shell, database connectivity | ✅ Complete |
 | **1** | Database schema, medicine catalogue, dashboard read models | ✅ Complete |
-| 2 | Suppliers, purchasing and receiving, batch creation, stock movements UI | ⏳ Schema and domain groundwork only |
+| **2** | Suppliers, purchasing and receiving, batch creation, stock movements UI | ✅ Complete |
 | 3 | Point of sale | ⏳ Not started |
 | 4 | Returns, expiry and reports | ⏳ Not started |
 | 5 | Users, permissions, audit trail, backup/restore | ⏳ Not started |
@@ -29,8 +29,16 @@ What works today:
 - The dashboard shows today's sales, low stock, near-expiry batches and recent stock movements.
 - The medicine catalogue supports search (name, brand, generic name, barcode), create, edit and
   deactivate, including duplicate warnings and validation.
+- Suppliers can be created, edited, searched and deactivated, with a warning when an invoice number
+  has already been received from that supplier.
+- Purchases can be created as drafts, edited, received into stock, reversed or cancelled. Receiving
+  creates one batch and one stock movement per line inside a single transaction, and every lifecycle
+  transition is a conditional write: two operators acting on the same purchase at the same moment
+  cannot both take the stock in — the loser is told to reload.
+- Inventory & batches lists stock with sellable/non-sellable states, expiry filters and a full stock
+  movement history, and reports whether every cached balance still equals its ledger total.
 
-Billing, purchasing and reporting are **not** implemented yet.
+Billing, returns and reporting are **not** implemented yet.
 
 ---
 
@@ -84,7 +92,7 @@ The override is checked first and wins over configuration.
 Set-Location C:\Users\Imran\source\repos\MediStock
 
 dotnet build MediStock.slnx                       # compile everything
-dotnet test  MediStock.slnx                       # run all 152 tests
+dotnet test  MediStock.slnx                       # run all 217 tests
 dotnet run   --project src\MediStock.Desktop      # launch the application
 ```
 
@@ -101,9 +109,9 @@ dotnet publish src\MediStock.Desktop -c Release -r win-x64 --self-contained true
 
 | Project | What it covers | Tests |
 |---|---|---|
-| `MediStock.Domain.Tests` | Money rounding, guards, medicine rules, expiry policy, FEFO ordering, batch balances, movements | 100 |
+| `MediStock.Domain.Tests` | Money rounding, guards, medicine rules, expiry policy, FEFO ordering, batch balances, movements, purchase lifecycle | 148 |
 | `MediStock.Application.Tests` | DTO/draft normalisation, `OperationResult` semantics | 18 |
-| `MediStock.IntegrationTests` | Migrations, schema constraints, catalogue queries against real SQL Server | 34 |
+| `MediStock.IntegrationTests` | Migrations, schema constraints, catalogue, supplier and receiving workflows, concurrent receives and reversals against real SQL Server | 51 |
 
 Integration tests need a reachable SQL Server. They create **`MediStock_Test`** in
 `(localdb)\MSSQLLocalDB`, migrate it, and drop it again on teardown — never production or personal

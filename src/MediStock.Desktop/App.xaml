@@ -1,4 +1,4 @@
-﻿<Application x:Class="MediStock.Desktop.App"
+<Application x:Class="MediStock.Desktop.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:MediStock.Desktop.ViewModels"
@@ -14,6 +14,7 @@
             <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
             <conv:NotNullToBooleanConverter x:Key="NotNull" />
             <conv:ActiveStatusConverter x:Key="ActiveStatus" />
+            <conv:DateOnlyToDateTimeConverter x:Key="DateOnlyToDateTime" />
 
             <!-- View-model to view mapping used by the shell's content region. -->
             <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
@@ -21,6 +22,15 @@
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:MedicinesViewModel}">
                 <views:MedicinesView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:SuppliersViewModel}">
+                <views:SuppliersView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:PurchasesViewModel}">
+                <views:PurchasesView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:InventoryViewModel}">
+                <views:InventoryView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />

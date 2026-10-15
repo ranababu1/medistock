@@ -19,44 +19,49 @@ namespace MediStock.Infrastructure.Diagnostics;
 /// </summary>
 internal sealed class SqlServerDatabaseHealthCheck : IDatabaseHealthCheck
 {
-    private readonly MediStockDbContext _db;
+    private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly MediStockOptions _options;
     private readonly ILogger<SqlServerDatabaseHealthCheck> _logger;
 
     public SqlServerDatabaseHealthCheck(
-        MediStockDbContext db,
+        IDbContextFactory<MediStockDbContext> factory,
         MediStockOptions options,
         ILogger<SqlServerDatabaseHealthCheck> logger)
     {
-        _db = db ?? throw new ArgumentNullException(nameof(db));
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    private string ProviderName => _db.Database.ProviderName ?? "Unknown";
+    private static string GetProviderName(MediStockDbContext db) => db.Database.ProviderName ?? "Unknown";
 
     public async Task<DatabaseHealthReport> CheckAsync(CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
+        var provider = "Unknown";
 
         try
         {
-            var creator = _db.Database.GetService<IRelationalDatabaseCreator>();
+            await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+            provider = GetProviderName(db);
+
+            var creator = db.Database.GetService<IRelationalDatabaseCreator>();
             if (!await creator.ExistsAsync(cancellationToken).ConfigureAwait(false))
             {
                 return new DatabaseHealthReport(
                     false,
-                    ProviderName,
+                    provider,
                     null,
                     null,
                     [],
                     stopwatch.Elapsed,
-                    $"The database '{_db.Database.GetDbConnection().Database}' has not been created yet.");
+                    $"The database '{db.Database.GetDbConnection().Database}' has not been created yet.");
             }
 
             // ExistsAsync opens and closes the connection, so it has to be reopened before the
             // connection-level metadata below can be read.
-            var connection = _db.Database.GetDbConnection();
+            var connection = db.Database.GetDbConnection();
             var opened = await EnsureOpenAsync(connection, cancellationToken).ConfigureAwait(false);
 
             try
@@ -64,14 +69,14 @@ internal sealed class SqlServerDatabaseHealthCheck : IDatabaseHealthCheck
                 var databaseName = connection.Database;
                 var serverVersion = connection.ServerVersion;
 
-                var pending = (await _db.Database
+                var pending = (await db.Database
                         .GetPendingMigrationsAsync(cancellationToken)
                         .ConfigureAwait(false))
                     .ToList();
 
                 return new DatabaseHealthReport(
                     true,
-                    ProviderName,
+                    provider,
                     databaseName,
                     serverVersion,
                     pending,
@@ -93,7 +98,7 @@ internal sealed class SqlServerDatabaseHealthCheck : IDatabaseHealthCheck
         catch (Exception ex)
         {
             _logger.LogError(ex, "Database health check failed.");
-            return DatabaseHealthReport.Unreachable(ProviderName, Describe(ex), stopwatch.Elapsed);
+            return DatabaseHealthReport.Unreachable(provider, Describe(ex), stopwatch.Elapsed);
         }
     }
 
@@ -111,7 +116,9 @@ internal sealed class SqlServerDatabaseHealthCheck : IDatabaseHealthCheck
 
     public async Task<int> ApplyPendingMigrationsAsync(CancellationToken cancellationToken = default)
     {
-        var pending = (await _db.Database
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        var pending = (await db.Database
                 .GetPendingMigrationsAsync(cancellationToken)
                 .ConfigureAwait(false))
             .ToList();
@@ -126,7 +133,7 @@ internal sealed class SqlServerDatabaseHealthCheck : IDatabaseHealthCheck
             pending.Count,
             string.Join(", ", pending));
 
-        await _db.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+        await db.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Database schema is up to date.");
 

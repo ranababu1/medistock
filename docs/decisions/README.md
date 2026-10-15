@@ -9,6 +9,8 @@ Numbered, immutable records of decisions that are expensive to reverse. Read
 | [0002](0002-expiry-date-interpretation.md) | Expiry date interpretation | Accepted — **needs pharmacist confirmation** |
 | [0003](0003-inventory-valuation.md) | Inventory valuation and costing method | Accepted |
 | [0004](0004-localdb-for-development.md) | LocalDB as the development and test database | Accepted — **deployment target unconfirmed** |
+| [0005](0005-no-purchase-orders-or-goods-receipts.md) | One purchase document: no purchase orders, goods receipts or partial receiving | Accepted |
+| [0006](0006-context-lifetime-and-execution-strategy.md) | One database context per operation, the execution-strategy contract, and conditional lifecycle writes | Accepted |
 
 ## Adding a record
 

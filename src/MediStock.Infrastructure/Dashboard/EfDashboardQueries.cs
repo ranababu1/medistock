@@ -1,6 +1,7 @@
 using MediStock.Application.Common;
 using MediStock.Application.Configuration;
 using MediStock.Application.Dashboard;
+using MediStock.Domain.Common;
 using MediStock.Domain.Inventory;
 using MediStock.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -13,47 +14,73 @@ namespace MediStock.Infrastructure.Dashboard;
 /// </summary>
 internal sealed class EfDashboardQueries : IDashboardQueries
 {
-    private readonly MediStockDbContext _db;
+    private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
     private readonly MediStockOptions _options;
 
-    public EfDashboardQueries(MediStockDbContext db, IClock clock, MediStockOptions options)
+    public EfDashboardQueries(
+        IDbContextFactory<MediStockDbContext> factory,
+        IClock clock,
+        MediStockOptions options)
     {
-        _db = db ?? throw new ArgumentNullException(nameof(db));
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
     public async Task<DashboardSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
         var businessDate = _clock.BusinessDate;
 
-        var medicineCount = await _db.Medicines.CountAsync(cancellationToken).ConfigureAwait(false);
-        var activeMedicineCount = await _db.Medicines
+        var medicineCount = await db.Medicines.CountAsync(cancellationToken).ConfigureAwait(false);
+        var activeMedicineCount = await db.Medicines
             .CountAsync(m => m.IsActive, cancellationToken)
             .ConfigureAwait(false);
-        var supplierCount = await _db.Suppliers
+        var supplierCount = await db.Suppliers
             .CountAsync(s => s.IsActive, cancellationToken)
             .ConfigureAwait(false);
 
-        var activeBatchCount = await _db.MedicineBatches
+        var activeBatchCount = await db.MedicineBatches
             .CountAsync(
                 b => b.Status == BatchStatus.Active && b.QuantityOnHand > 0 && b.ExpiryDate >= businessDate,
                 cancellationToken)
             .ConfigureAwait(false);
 
-        var expiredBatchCount = await _db.MedicineBatches
+        var expiredBatchCount = await db.MedicineBatches
             .CountAsync(
                 b => b.QuantityOnHand > 0 && b.ExpiryDate < businessDate,
                 cancellationToken)
             .ConfigureAwait(false);
 
-        // Inventory valuation at cost. The costing method is documented in
-        // docs/decisions/0003-inventory-valuation.md.
-        var inventoryValue = await _db.MedicineBatches
+        // Inventory valuation at cost, split into stock that may be dispensed today and stock that may
+        // not. The costing method is documented in docs/decisions/0003-inventory-valuation.md.
+        var inventoryRows = await db.MedicineBatches
+            .AsNoTracking()
             .Where(b => b.QuantityOnHand > 0)
-            .SumAsync(b => b.QuantityOnHand * b.PurchaseCost, cancellationToken)
+            .Select(b => new { b.Status, b.ExpiryDate, b.QuantityOnHand, b.PurchaseCost })
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // Expiry eligibility is decided by ExpiryPolicy alone, so it is evaluated in memory rather
+        // than restated in SQL.
+        var sellableValue = 0m;
+        var nonSellableValue = 0m;
+
+        foreach (var row in inventoryRows)
+        {
+            var value = Money.Round(row.QuantityOnHand * row.PurchaseCost);
+
+            if (ExpiryPolicy.IsSellable(row.Status, row.ExpiryDate, row.QuantityOnHand, businessDate))
+            {
+                sellableValue += value;
+            }
+            else
+            {
+                nonSellableValue += value;
+            }
+        }
 
         var lowStock = await GetLowStockAsync(500, cancellationToken).ConfigureAwait(false);
         var expiring = await GetExpiringBatchesAsync(
@@ -72,16 +99,20 @@ internal sealed class EfDashboardQueries : IDashboardQueries
             lowStock.Count,
             expiring.Count,
             expiredBatchCount,
-            inventoryValue);
+            sellableValue + nonSellableValue,
+            sellableValue,
+            nonSellableValue);
     }
 
     public async Task<IReadOnlyList<LowStockItem>> GetLowStockAsync(
         int take = 25,
         CancellationToken cancellationToken = default)
     {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
         var businessDate = _clock.BusinessDate;
 
-        var thresholds = await _db.Medicines
+        var thresholds = await db.Medicines
             .AsNoTracking()
             .Where(m => m.IsActive && m.ReorderThreshold != null)
             .Select(m => new { m.Id, m.DisplayName, m.Strength, Threshold = m.ReorderThreshold!.Value })
@@ -93,7 +124,7 @@ internal sealed class EfDashboardQueries : IDashboardQueries
             return [];
         }
 
-        var balances = await _db.MedicineBatches
+        var balances = await db.MedicineBatches
             .AsNoTracking()
             .Where(b => b.Status == BatchStatus.Active && b.ExpiryDate >= businessDate && b.QuantityOnHand > 0)
             .GroupBy(b => b.MedicineId)
@@ -133,10 +164,12 @@ internal sealed class EfDashboardQueries : IDashboardQueries
         int take = 25,
         CancellationToken cancellationToken = default)
     {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
         var businessDate = _clock.BusinessDate;
         var limit = businessDate.AddDays(Math.Max(withinDays, 0));
 
-        var query = _db.MedicineBatches
+        var query = db.MedicineBatches
             .AsNoTracking()
             .Where(b => b.QuantityOnHand > 0 && b.Status != BatchStatus.Depleted)
             .Where(b => b.ExpiryDate <= limit);

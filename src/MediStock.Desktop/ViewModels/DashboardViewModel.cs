@@ -69,6 +69,12 @@ public sealed partial class DashboardViewModel : ViewModelBase
     public string InventoryValueText =>
         Snapshot.InventoryValueAtCost.ToString("N2", CultureInfo.CurrentCulture);
 
+    public string SellableInventoryValueText =>
+        Snapshot.SellableInventoryValueAtCost.ToString("N2", CultureInfo.CurrentCulture);
+
+    public string NonSellableInventoryValueText =>
+        Snapshot.NonSellableInventoryValueAtCost.ToString("N2", CultureInfo.CurrentCulture);
+
     public string NearExpiryWindowText => $"within {_nearExpiryDays} days";
 
     /// <summary>
@@ -80,7 +86,8 @@ public sealed partial class DashboardViewModel : ViewModelBase
         new(
             "Inventory value at cost",
             InventoryValueText,
-            "Sum of batch quantity on hand x purchase cost, active batches only."),
+            $"Sum of batch quantity on hand x purchase cost (specific identification). {SellableInventoryValueText} " +
+            $"is sellable today; {NonSellableInventoryValueText} is expired, recalled, written off, or depleted. All batches."),
         new(
             "Active medicines",
             Snapshot.ActiveMedicineCount.ToString("N0", CultureInfo.CurrentCulture),
