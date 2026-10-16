@@ -7,10 +7,10 @@
 > Companion documents:
 > - [`currentstate.md`](currentstate.md) — what the application actually does **today**.
 > - [`CHANGELOG.md`](CHANGELOG.md) — what changed, when, and in which commit.
-> - [`docs/roadmap.md`](docs/roadmap.md) — the original milestone brief with full acceptance criteria.
-> - [`docs/decisions/`](docs/decisions/) — architecture decision records.
+> - [`roadmap.md`](roadmap.md) — the original milestone brief with full acceptance criteria.
+> - [`decisions/`](decisions/) — architecture decision records.
 
-**Last updated:** 2026-10-16 · **Version:** 0.5.0 (see [`Directory.Build.props`](Directory.Build.props))
+**Last updated:** 2026-10-16 · **Version:** 0.6.0 (see [`Directory.Build.props`](Directory.Build.props))
 
 ---
 
@@ -147,8 +147,10 @@ lives in [`CHANGELOG.md`](CHANGELOG.md) under `0.5.0`, and in the docs as they s
 - [x] Add a GitHub Actions workflow that builds, tests and attaches the artifact to a tag.
       *(`.github/workflows/build.yml` — build + test on every push/PR, release publish on `v*`
       tags, reusing `publish-release.ps1`)*
-- [ ] Decide installer vs. MSIX; document the LocalDB/SQL Server prerequisite on the download page.
-- [ ] Add `-Setup.exe` naming, version stamping and release notes.
+- [x] Decide installer vs. MSIX — zip + per-user `install.ps1`/`uninstall.ps1`
+      ([ADR 0012](decisions/0012-distribution-zip-with-install-script.md)); the LocalDB prerequisite is in
+      the release notes.
+- [x] Version stamping (checked against the exe) and release notes generated from `docs/CHANGELOG.md`.
 - [ ] Test install → upgrade → backup → restore → uninstall on a clean machine
       (`docs/release-process.md` §5).
 

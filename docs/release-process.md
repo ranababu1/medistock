@@ -15,14 +15,15 @@ For the *version numbers*, see [`plan.md`](plan.md) §8. For *what changed*, see
 | Version | Meaning |
 |---|---|
 | `0.5.0` | Milestone 5 — users, roles, audit, backup |
-| `0.6.0` | Milestone 6 — packaging |
+| `0.6.0` | Milestone 4b — stock corrections, supplier returns |
+| `0.7.0` | Milestone 6 — packaging and installer |
 | `1.0.0` | first release intended for a real pharmacy, after validation |
 
 The version lives in exactly one place:
 
 ```xml
 <!-- Directory.Build.props -->
-<Version>0.5.0</Version>
+<Version>0.6.0</Version>
 ```
 
 It is stamped into every assembly, into the product version shown on the Support tab, and into the
@@ -114,10 +115,12 @@ build: the .NET runtime is inside, so the target machine needs no .NET installat
 a **SQL Server instance** — LocalDB for a single-PC installation, or any reachable SQL Server.
 
 ```
-MediStock.exe
+MediStock.Desktop.exe
 appsettings.json
 appsettings.Development.json
-LICENSE / README (as applicable)
+appsettings.Local.example.json
+install.ps1
+uninstall.ps1
 ```
 
 Configuration files sit **next to** the executable, never inside it, so a pharmacy can point the
@@ -137,14 +140,14 @@ pharmacy does.
 - [ ] Copy the zip to a Windows machine that has **never** had MediStock on it and does not have the
       .NET SDK installed.
 - [ ] Install SQL Server Express LocalDB (or point `appsettings.json` at an existing instance).
-- [ ] Unzip and run `MediStock.exe`. It must open the first-run administrator form.
+- [ ] Unzip and run `install.ps1` (or `MediStock.Desktop.exe` directly). It must open the first-run administrator form.
 - [ ] Create the administrator, sign in, and confirm the dashboard renders.
 - [ ] Create a medicine, receive a purchase, ring up a sale, print the receipt, return a line.
 - [ ] Take a backup, verify it, then restore it and confirm the totals are unchanged.
 - [ ] Close the application. Confirm `%LOCALAPPDATA%\MediStock\logs` has a log with no `ERROR`.
-- [ ] **Upgrade test:** unzip the next version over the same folder, run it, sign in, and confirm the
+- [ ] **Upgrade test:** unzip the next version and run `install.ps1` again, run it, sign in, and confirm the
       data is intact and any new migration applied.
-- [ ] **Uninstall test:** delete the folder, and document what is left behind (the database, the
+- [ ] **Uninstall test:** run `uninstall.ps1`, and document what is left behind (the database, the
       logs, the documents folder) so the procedure is honest about it.
 
 ---

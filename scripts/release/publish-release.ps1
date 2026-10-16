@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Builds the self-contained MediStock release artefact and publishes it to GitHub Releases.
 
@@ -52,7 +52,7 @@ Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $project = Join-Path $repoRoot 'src\MediStock.Desktop\MediStock.Desktop.csproj'
 $props = Join-Path $repoRoot 'Directory.Build.props'
-$changelog = Join-Path $repoRoot 'CHANGELOG.md'
+$changelog = Join-Path $repoRoot 'docs\CHANGELOG.md'
 $artifacts = Join-Path $repoRoot 'artifacts'
 $publishDir = Join-Path $artifacts "publish\$Version"
 $zipPath = Join-Path $artifacts "MediStock-$Version-win-x64.zip"
@@ -151,6 +151,11 @@ if ($fileVersion -notlike "$Version*") {
 }
 Write-Ok "executable reports product version $fileVersion"
 
+# --------------------------------------------------------------------------- installer scripts
+Copy-Item (Join-Path $PSScriptRoot 'install.ps1') $publishDir -Force
+Copy-Item (Join-Path $PSScriptRoot 'uninstall.ps1') $publishDir -Force
+Write-Ok 'install.ps1 and uninstall.ps1 added to the artefact'
+
 # --------------------------------------------------------------------------- manifest and zip
 Write-Step 'Writing the manifest and the archive'
 
@@ -192,7 +197,9 @@ $body
 ## Downloads
 
 - ``MediStock-$Version-win-x64.zip`` - self-contained 64-bit Windows build. No .NET installation is
-  needed; SQL Server Express LocalDB or any reachable SQL Server instance is.
+  needed; SQL Server Express LocalDB or any reachable SQL Server instance is. Unzip it and run
+  ``install.ps1`` for a per-user install with a Start Menu shortcut, or run ``MediStock.Desktop.exe``
+  straight from the folder.
 
 ## Verify your download
 

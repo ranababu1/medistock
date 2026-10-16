@@ -15,6 +15,8 @@ Numbered, immutable records of decisions that are expensive to reverse. Read
 | [0008](0008-sales-returns-and-stock-disposition.md) | Sales returns, refunds and the disposition of returned stock | Accepted — **needs pharmacist and tax confirmation** |
 | [0009](0009-users-roles-and-the-audit-trail.md) | Users, roles, the audit trail, and where a refusal is decided | Accepted |
 | [0010](0010-backup-and-restore.md) | Backup and restore, and what a backup is not | Accepted — **deployment target unconfirmed** |
+| [0011](0011-stock-corrections.md) | Stock corrections and supplier returns | Accepted |
+| [0012](0012-distribution-zip-with-install-script.md) | Distribute a zip with a per-user install script | Accepted |
 
 ## Adding a record
 

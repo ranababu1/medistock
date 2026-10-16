@@ -282,7 +282,7 @@ on teardown. Point them elsewhere with `MEDISTOCK_TEST_CONNECTION`.
 | Item | State |
 |---|---|
 | GitHub Actions CI (build + test on push/PR, release on `v*` tags) | ✅ first run green on `bf16e2d` |
-| Installer / MSIX decision | ⏳ deferred — zip is the current distribution |
+| Installer / MSIX decision | ✅ zip + per-user `install.ps1` / `uninstall.ps1`, [ADR 0012](decisions/0012-distribution-zip-with-install-script.md); install → upgrade → uninstall verified into a temp folder |
 | Validate the artefact on a clean machine (`docs/release-process.md` §5) | ⏳ still to do |
 
 ### Known rough edges

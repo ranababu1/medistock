@@ -12,6 +12,24 @@ Security, in that order.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`install.ps1` / `uninstall.ps1`** shipped inside the release zip: per-user install to
+  `%LOCALAPPDATA%\Programs\MediStock`, Start Menu shortcut, LocalDB start, upgrade that keeps the
+  operator's `appsettings*.json`, and an uninstall that leaves the database and records alone.
+  ADR 0012 records why this was chosen over MSIX or a setup wizard.
+
+### Fixed
+
+- `publish-release.ps1` read `CHANGELOG.md` from the repository root, where it no longer lives, so
+  generated release notes lost their changelog section; it now reads `docs/CHANGELOG.md`.
+- Stale versions, links and the executable name (`MediStock.Desktop.exe`) in `plan.md` and
+  `release-process.md`.
+
+---
+
 ## [0.6.0] — Milestone 4b: stock corrections, supplier returns and quarantine
 
 **Commits** `89f6ebf` (feature) + `fd8326c` (docs) · **Date** 2026-10-16 ·
