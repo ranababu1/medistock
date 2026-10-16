@@ -82,11 +82,29 @@ internal sealed class EfDashboardQueries : IDashboardQueries
             }
         }
 
-        var lowStock = await GetLowStockAsync(500, cancellationToken).ConfigureAwait(false);
-        var expiring = await GetExpiringBatchesAsync(
-                withinDays: _options.NearExpiryDays,
-                includeExpired: false,
-                take: 500,
+        // The tiles need counts, not 500 materialized rows, so both figures are counted here in this
+        // context. The low-stock count restates GetLowStockAsync's rule — a medicine whose balance of
+        // active, unexpired batches stands at or under its reorder threshold — and the near-expiry
+        // count restates GetExpiringBatchesAsync's, so the snapshot and the lists it headlines agree.
+        var lowStockCount = await db.Medicines
+            .Where(m => m.IsActive && m.ReorderThreshold != null)
+            .Where(m => (db.MedicineBatches
+                    .Where(b => b.MedicineId == m.Id
+                        && b.Status == BatchStatus.Active
+                        && b.ExpiryDate >= businessDate
+                        && b.QuantityOnHand > 0)
+                    .Sum(b => (decimal?)b.QuantityOnHand) ?? 0m)
+                <= m.ReorderThreshold!.Value)
+            .CountAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var nearExpiryLimit = businessDate.AddDays(Math.Max(_options.NearExpiryDays, 0));
+        var expiringBatchCount = await db.MedicineBatches
+            .CountAsync(
+                b => b.QuantityOnHand > 0
+                    && b.Status != BatchStatus.Depleted
+                    && b.ExpiryDate >= businessDate
+                    && b.ExpiryDate <= nearExpiryLimit,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -96,8 +114,8 @@ internal sealed class EfDashboardQueries : IDashboardQueries
             activeMedicineCount,
             supplierCount,
             activeBatchCount,
-            lowStock.Count,
-            expiring.Count,
+            lowStockCount,
+            expiringBatchCount,
             expiredBatchCount,
             sellableValue + nonSellableValue,
             sellableValue,

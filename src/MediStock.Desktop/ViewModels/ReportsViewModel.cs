@@ -39,6 +39,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>The report as the queries produced it, which is what gets exported.</summary>
     private ReportTable? _current;
 
+    /// <summary>Whether the operator has chosen a range of their own, which must survive re-visits.</summary>
+    private bool _operatorPinnedDates;
+
+    private bool _refreshingDefaultDates;
+
     public ReportsViewModel(
         IReportQueries reports,
         ICsvExporter csv,
@@ -143,8 +148,47 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>The export path the next export would write to, shown before it is written.</summary>
     public string ExportFolder => OutputFolder.Resolve(_options.Value.ReportFolder, @"MediStock\Reports");
 
-    public override Task InitializeAsync(CancellationToken cancellationToken = default) =>
-        RunAsync(cancellationToken);
+    public override async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        RefreshDefaultDates();
+        await RunAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Restores the last-seven-days default before a run, unless the operator has pinned a range. The
+    /// page lives for the whole session, so defaults left overnight must not keep reporting yesterday
+    /// as today — but a range the operator chose is theirs and survives a trip to another page.
+    /// </summary>
+    private void RefreshDefaultDates()
+    {
+        if (_operatorPinnedDates)
+        {
+            return;
+        }
+
+        _refreshingDefaultDates = true;
+        try
+        {
+            From = _clock.BusinessDate.AddDays(-6);
+            To = _clock.BusinessDate;
+        }
+        finally
+        {
+            _refreshingDefaultDates = false;
+        }
+    }
+
+    partial void OnFromChanged(DateOnly? value) => PinDates();
+
+    partial void OnToChanged(DateOnly? value) => PinDates();
+
+    private void PinDates()
+    {
+        if (!_refreshingDefaultDates)
+        {
+            _operatorPinnedDates = true;
+        }
+    }
 
     [RelayCommand]
     private async Task RunAsync(CancellationToken cancellationToken)

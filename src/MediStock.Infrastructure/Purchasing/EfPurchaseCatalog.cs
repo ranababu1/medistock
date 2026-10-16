@@ -423,7 +423,10 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
             // Batches must be persisted first: a stock movement cannot reference a batch that has no key.
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            var businessDate = _clock.BusinessDate;
+            // The movement is booked on the day the goods arrived — which the operator may have
+            // back-dated — not the day the receipt was keyed in, so the batch, the movements report
+            // and the purchases report all agree on one date.
+            var businessDate = receivedOn;
             for (var index = 0; index < receipts.Count; index++)
             {
                 var receipt = receipts[index];

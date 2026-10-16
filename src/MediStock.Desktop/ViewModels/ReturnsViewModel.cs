@@ -40,7 +40,13 @@ public sealed partial class ReturnsViewModel : ViewModelBase
     private readonly ISaleReturnCatalog _returns;
     private readonly ISaleCatalog _sales;
     private readonly IDialogService _dialogs;
+    private readonly IClock _clock;
     private readonly ILogger<ReturnsViewModel> _logger;
+
+    /// <summary>Whether the operator has chosen dates of their own, which must survive re-visits.</summary>
+    private bool _operatorPinnedDates;
+
+    private bool _refreshingDefaultDates;
 
     public ReturnsViewModel(
         ISaleReturnCatalog returns,
@@ -55,6 +61,7 @@ public sealed partial class ReturnsViewModel : ViewModelBase
         _returns = returns;
         _sales = sales;
         _dialogs = dialogs;
+        _clock = clock;
         _logger = logger;
 
         Dispositions =
@@ -236,8 +243,44 @@ public sealed partial class ReturnsViewModel : ViewModelBase
 
     public override async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        RefreshDefaultDates();
         await RefreshReturnNumberAsync(cancellationToken).ConfigureAwait(true);
         await SearchAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Restores the "today" defaults before the screen loads, unless the operator has pinned dates of
+    /// their own. The page lives for the whole session, so defaults left overnight must not keep
+    /// booking returns and filtering history to yesterday — but the operator's choice survives a trip
+    /// to another page.
+    /// </summary>
+    private void RefreshDefaultDates()
+    {
+        if (_operatorPinnedDates)
+        {
+            return;
+        }
+
+        _refreshingDefaultDates = true;
+        try
+        {
+            To = _clock.BusinessDate;
+            BusinessDate = _clock.BusinessDate;
+        }
+        finally
+        {
+            _refreshingDefaultDates = false;
+        }
+    }
+
+    partial void OnToChanged(DateOnly? value) => PinDates();
+
+    private void PinDates()
+    {
+        if (!_refreshingDefaultDates)
+        {
+            _operatorPinnedDates = true;
+        }
     }
 
     /// <summary>Looks the invoice up and works out what is left to come back, batch by batch.</summary>
@@ -288,6 +331,8 @@ public sealed partial class ReturnsViewModel : ViewModelBase
                     ReturnLines.Add(row);
                 }
             }
+
+            RecomputeRefundPreviews();
 
             OnPropertyChanged(nameof(RefundPreviewTotal));
             OnPropertyChanged(nameof(RefundPreviewText));
@@ -620,9 +665,52 @@ public sealed partial class ReturnsViewModel : ViewModelBase
             return;
         }
 
+        // A quantity change re-prices every row of that invoice line, because the row that clears the
+        // line takes the remainder of what was charged.
+        RecomputeRefundPreviews();
+
         OnPropertyChanged(nameof(RefundPreviewTotal));
         OnPropertyChanged(nameof(RefundPreviewText));
         OnPropertyChanged(nameof(RefundPreviewSummary));
+    }
+
+    /// <summary>
+    /// Re-prices every row's refund the way the recorded return will: the rows of one invoice line are
+    /// priced in order, and the row that clears the line takes the exact remainder of what was charged.
+    /// Pricing each row on its own would let a line split across several batches promise a paisa more or
+    /// less than the refund the domain records.
+    /// </summary>
+    private void RecomputeRefundPreviews()
+    {
+        var returnedSoFar = new Dictionary<SaleLineDto, decimal>();
+        var returnableSoFar = new Dictionary<SaleLineDto, decimal>();
+
+        foreach (var row in ReturnLines)
+        {
+            var line = row.Line;
+            var returned = returnedSoFar.TryGetValue(line, out var shared)
+                ? shared
+                : line.ReturnedAmount;
+            var returnable = returnableSoFar.TryGetValue(line, out var remaining)
+                ? remaining
+                : line.ReturnableQuantity;
+
+            if (row.Quantity <= 0m)
+            {
+                row.SetRefundPreview(0m);
+                continue;
+            }
+
+            // The row's own clamp keeps a quantity within its batch, but two rows of one line can
+            // together ask for more than the line has left; the preview then serves what it can and
+            // the recorded return refuses the rest.
+            var served = Math.Min(row.Quantity, returnable);
+            var share = Money.ShareOfLine(line.LineTotal, returned, served, line.Quantity, returnable);
+
+            row.SetRefundPreview(share);
+            returnedSoFar[line] = returned + share;
+            returnableSoFar[line] = returnable - served;
+        }
     }
 
     partial void OnSelectedReturnChanged(SalesReturnDto? value)
@@ -636,6 +724,8 @@ public sealed partial class ReturnsViewModel : ViewModelBase
 
     partial void OnBusinessDateChanged(DateOnly value)
     {
+        PinDates();
+
         // An expiry hint is about today, so it moves with the date the operator is working on.
         foreach (var line in ReturnLines)
         {
@@ -676,6 +766,7 @@ public sealed record ReturnDispositionFilter(string Label, ReturnDisposition? Di
 public sealed partial class ReturnLineViewModel : ObservableObject
 {
     private readonly DateOnly _invoiceBusinessDate;
+    private decimal _refundPreview;
 
     public ReturnLineViewModel(
         SaleLineDto line,
@@ -762,17 +853,25 @@ public sealed partial class ReturnLineViewModel : ObservableObject
         : $"{ExpiryDate:yyyy-MM-dd}";
 
     /// <summary>
-    /// What this row would refund if it were recorded now. Exact for the ordinary case of one entry per
-    /// invoice line; the recorded return recomputes it and is the authority.
+    /// What this row would refund if the return were recorded now. The screen prices the rows of an
+    /// invoice line in the order the recorded return will — the row that clears the line takes the
+    /// exact remainder — so a line split across batches cannot promise a paisa more or less than the
+    /// refund the domain pays.
     /// </summary>
     public decimal RefundPreview => Quantity <= 0m || _invoiceBusinessDate > BusinessDate
         ? 0m
-        : Money.ShareOfLine(
-            Line.LineTotal,
-            Line.ReturnedAmount,
-            Quantity,
-            Line.Quantity,
-            Line.ReturnableQuantity);
+        : _refundPreview;
+
+    /// <summary>
+    /// Prices this row's share of the refund. Only the screen that owns the rows calls this, from
+    /// <see cref="RecomputeRefundPreviews"/>.
+    /// </summary>
+    public void SetRefundPreview(decimal refund)
+    {
+        _refundPreview = refund;
+        OnPropertyChanged(nameof(RefundPreview));
+        OnPropertyChanged(nameof(RefundPreviewText));
+    }
 
     public string RefundPreviewText => RefundPreview.ToString("N2", CultureInfo.CurrentCulture);
 
@@ -784,6 +883,8 @@ public sealed partial class ReturnLineViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRestock));
         OnPropertyChanged(nameof(IsExpired));
         OnPropertyChanged(nameof(ExpiryText));
+        OnPropertyChanged(nameof(RefundPreview));
+        OnPropertyChanged(nameof(RefundPreviewText));
     }
 
     partial void OnQuantityChanged(decimal value)

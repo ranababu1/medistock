@@ -533,9 +533,12 @@ public sealed partial class NewSaleViewModel : ViewModelBase
     {
         if (Cart.Count == 0)
         {
+            // Nothing there is nothing to quote: showing an invoice number or a "basket is empty"
+            // blocker for an empty cart is noise, and the quote round trip is a waste.
             Quote = null;
             OnPropertyChanged(nameof(IsCartEmpty));
             OnPropertyChanged(nameof(CartSummary));
+            return;
         }
 
         IsQuoting = true;

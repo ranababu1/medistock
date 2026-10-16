@@ -19,7 +19,13 @@ public sealed partial class SalesHistoryViewModel : ViewModelBase
 {
     private readonly ISaleCatalog _sales;
     private readonly IReceiptExporter _receipts;
+    private readonly IClock _clock;
     private readonly ILogger<SalesHistoryViewModel> _logger;
+
+    /// <summary>Whether the operator has chosen a range of their own, which must survive re-visits.</summary>
+    private bool _operatorPinnedDates;
+
+    private bool _refreshingDefaultDates;
 
     public SalesHistoryViewModel(
         ISaleCatalog sales,
@@ -28,8 +34,11 @@ public sealed partial class SalesHistoryViewModel : ViewModelBase
         ILogger<SalesHistoryViewModel> logger)
         : base("Sales History")
     {
+        ArgumentNullException.ThrowIfNull(clock);
+
         _sales = sales;
         _receipts = receipts;
+        _clock = clock;
         _logger = logger;
 
         StatusFilters =
@@ -108,8 +117,47 @@ public sealed partial class SalesHistoryViewModel : ViewModelBase
     public string DetailHeading =>
         SelectedSale is null ? "Select an invoice" : $"Invoice {SelectedSale.InvoiceNumber}";
 
-    public override Task InitializeAsync(CancellationToken cancellationToken = default) =>
-        SearchAsync(cancellationToken);
+    public override async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        RefreshDefaultDates();
+        await SearchAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Restores the "today" defaults before a search, unless the operator has pinned a range. The page
+    /// lives for the whole session, so a range left overnight must not keep reporting yesterday as
+    /// today — but a range the operator chose is theirs and survives a trip to another page.
+    /// </summary>
+    private void RefreshDefaultDates()
+    {
+        if (_operatorPinnedDates)
+        {
+            return;
+        }
+
+        _refreshingDefaultDates = true;
+        try
+        {
+            From = _clock.BusinessDate;
+            To = _clock.BusinessDate;
+        }
+        finally
+        {
+            _refreshingDefaultDates = false;
+        }
+    }
+
+    partial void OnFromChanged(DateOnly? value) => PinDates();
+
+    partial void OnToChanged(DateOnly? value) => PinDates();
+
+    private void PinDates()
+    {
+        if (!_refreshingDefaultDates)
+        {
+            _operatorPinnedDates = true;
+        }
+    }
 
     /// <summary>Runs the search behind the filters and replaces the list on screen.</summary>
     [RelayCommand]
