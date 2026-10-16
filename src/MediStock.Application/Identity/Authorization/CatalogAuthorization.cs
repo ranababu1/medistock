@@ -42,6 +42,8 @@ public static class CatalogAuthorization
         [typeof(IPurchaseCatalog)] = (inner, session) => new GuardedPurchaseCatalog((IPurchaseCatalog)inner, session),
         [typeof(ISaleCatalog)] = (inner, session) => new GuardedSaleCatalog((ISaleCatalog)inner, session),
         [typeof(ISaleReturnCatalog)] = (inner, session) => new GuardedSaleReturnCatalog((ISaleReturnCatalog)inner, session),
+        [typeof(ISupplierReturnCatalog)] = (inner, session) => new GuardedSupplierReturnCatalog((ISupplierReturnCatalog)inner, session),
+        [typeof(IInventoryOperations)] = (inner, session) => new GuardedInventoryOperations((IInventoryOperations)inner, session),
         [typeof(IReportQueries)] = (inner, session) => new GuardedReportQueries((IReportQueries)inner, session),
         [typeof(ICsvExporter)] = (inner, session) => new GuardedCsvExporter((ICsvExporter)inner, session),
     };

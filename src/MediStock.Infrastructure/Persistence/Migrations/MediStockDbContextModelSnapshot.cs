@@ -1070,6 +1070,125 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                     b.ToTable("Suppliers", (string)null);
                 });
 
+            modelBuilder.Entity("MediStock.Domain.Suppliers.SupplierReturn", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateOnly>("BusinessDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("ReturnNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTimeOffset>("ReturnedAtUtc")
+                        .HasColumnType("datetimeoffset(3)");
+
+                    b.Property<string>("ReturnedBy")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("SupplierCreditNoteNumber")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalCostValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessDate")
+                        .HasDatabaseName("IX_SupplierReturns_BusinessDate");
+
+                    b.HasIndex("ReturnNumber")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SupplierReturns_ReturnNumber");
+
+                    b.HasIndex("SupplierId")
+                        .HasDatabaseName("IX_SupplierReturns_SupplierId");
+
+                    b.ToTable("SupplierReturns", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SupplierReturns_Reason_NotBlank", "LEN(LTRIM(RTRIM([Reason]))) > 0");
+
+                            t.HasCheckConstraint("CK_SupplierReturns_TotalCostValue_NonNegative", "[TotalCostValue] >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Suppliers.SupplierReturnLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("CostValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MedicineBatchId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<int>("SupplierReturnId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MedicineBatchId")
+                        .HasDatabaseName("IX_SupplierReturnLines_MedicineBatchId");
+
+                    b.HasIndex("SupplierReturnId", "LineNumber")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SupplierReturnLines_Return_LineNumber");
+
+                    b.ToTable("SupplierReturnLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SupplierReturnLines_CostValue_NonNegative", "[CostValue] >= 0 AND [UnitCost] >= 0");
+
+                            t.HasCheckConstraint("CK_SupplierReturnLines_LineNumber_Positive", "[LineNumber] > 0");
+
+                            t.HasCheckConstraint("CK_SupplierReturnLines_Quantity_Positive", "[Quantity] > 0");
+                        });
+                });
+
             modelBuilder.Entity("MediStock.Domain.Inventory.MedicineBatch", b =>
                 {
                     b.HasOne("MediStock.Domain.Catalogue.Medicine", "Medicine")
@@ -1221,6 +1340,34 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                     b.Navigation("SalesReturn");
                 });
 
+            modelBuilder.Entity("MediStock.Domain.Suppliers.SupplierReturn", b =>
+                {
+                    b.HasOne("MediStock.Domain.Suppliers.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Suppliers.SupplierReturnLine", b =>
+                {
+                    b.HasOne("MediStock.Domain.Inventory.MedicineBatch", "MedicineBatch")
+                        .WithMany()
+                        .HasForeignKey("MedicineBatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MediStock.Domain.Suppliers.SupplierReturn", "SupplierReturn")
+                        .WithMany("Lines")
+                        .HasForeignKey("SupplierReturnId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MedicineBatch");
+
+                    b.Navigation("SupplierReturn");
+                });
+
             modelBuilder.Entity("MediStock.Domain.Purchasing.Purchase", b =>
                 {
                     b.Navigation("Lines");
@@ -1241,6 +1388,11 @@ namespace MediStock.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("MediStock.Domain.Sales.SalesReturn", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("MediStock.Domain.Suppliers.SupplierReturn", b =>
                 {
                     b.Navigation("Lines");
                 });

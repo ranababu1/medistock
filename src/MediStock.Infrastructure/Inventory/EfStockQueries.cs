@@ -2,6 +2,7 @@ using MediStock.Application.Common;
 using MediStock.Application.Inventory;
 using MediStock.Domain.Common;
 using MediStock.Domain.Inventory;
+using MediStock.Domain.Sales;
 using MediStock.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -224,6 +225,120 @@ internal sealed class EfStockQueries : IStockQueries
         return new ReconciliationSummary(cached.Count, mismatched, ledgerQuantity, cachedQuantity);
     }
 
+    public async Task<IReadOnlyList<QuarantinedStockDto>> ListQuarantinedAsync(
+        QuarantinedStockQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        // Source one: quantities a customer brought back that the pharmacist kept back rather than
+        // restocking or destroying. They are not on any batch's balance any more - the batch gave them up
+        // when they were sold - so the return lines are the only record of where they are.
+        var customerReturns = await db.SalesReturnLines
+            .AsNoTracking()
+            .Where(line => line.Disposition == ReturnDisposition.Quarantine)
+            .OrderByDescending(line => line.SalesReturn.BusinessDate)
+            .ThenByDescending(line => line.Id)
+            .Take(QuarantinedStockQuery.MaxResults)
+            .Select(line => new
+            {
+                line.MedicineBatchId,
+                line.MedicineBatch.MedicineId,
+                MedicineName = line.MedicineBatch.Medicine.DisplayName,
+                line.MedicineBatch.Medicine.Strength,
+                line.MedicineBatch.BatchNumber,
+                line.MedicineBatch.ExpiryDate,
+                line.Quantity,
+                Reason = line.SalesReturn.Reason,
+                QuarantinedOn = line.SalesReturn.BusinessDate,
+                Reference = line.SalesReturn.ReturnNumber,
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Sources two and three: batches blocked by a write-off or a recall that still hold quantity to
+        // deal with. The quantity is still on their balance, but it can no longer be sold, restocked or
+        // sent back to the supplier, so it is quarantine in every sense that matters to the pharmacist.
+        var batches = await db.MedicineBatches
+            .AsNoTracking()
+            .Where(batch => batch.QuantityOnHand > 0
+                && (batch.Status == BatchStatus.Recalled || batch.Status == BatchStatus.WrittenOff))
+            .OrderByDescending(batch => batch.UpdatedAtUtc)
+            .Take(QuarantinedStockQuery.MaxResults)
+            .Select(batch => new
+            {
+                batch.Id,
+                batch.MedicineId,
+                MedicineName = batch.Medicine.DisplayName,
+                batch.Medicine.Strength,
+                batch.BatchNumber,
+                batch.ExpiryDate,
+                Quantity = batch.QuantityOnHand,
+                batch.Status,
+                Reason = batch.StatusReason,
+                batch.UpdatedAtUtc,
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var rows = new List<QuarantinedStockDto>();
+
+        rows.AddRange(customerReturns.Select(line => new QuarantinedStockDto
+        {
+            Source = QuarantineSource.CustomerReturn,
+            MedicineId = line.MedicineId,
+            MedicineName = line.MedicineName,
+            Strength = line.Strength,
+            MedicineBatchId = line.MedicineBatchId,
+            BatchNumber = line.BatchNumber,
+            ExpiryDate = line.ExpiryDate,
+            Quantity = line.Quantity,
+            Reason = line.Reason ?? string.Empty,
+            QuarantinedOn = line.QuarantinedOn,
+            Reference = line.Reference ?? string.Empty,
+        }));
+
+        rows.AddRange(batches.Select(batch => new QuarantinedStockDto
+        {
+            Source = batch.Status == BatchStatus.Recalled ? QuarantineSource.Recall : QuarantineSource.WriteOff,
+            MedicineId = batch.MedicineId,
+            MedicineName = batch.MedicineName,
+            Strength = batch.Strength,
+            MedicineBatchId = batch.Id,
+            BatchNumber = batch.BatchNumber,
+            ExpiryDate = batch.ExpiryDate,
+            Quantity = batch.Quantity,
+            Reason = batch.Reason ?? string.Empty,
+            // The business date the block was last recorded, which is the date the stock entered this
+            // state. A batch shows the day its status changed, a return line the day it was taken back.
+            QuarantinedOn = DateOnly.FromDateTime(batch.UpdatedAtUtc.LocalDateTime),
+            Reference = batch.BatchNumber,
+        }));
+
+        IEnumerable<QuarantinedStockDto> filtered = rows;
+
+        if (Normalise(query.Term) is { } term)
+        {
+            filtered = filtered.Where(row =>
+                row.MedicineName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.BatchNumber.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.Reason.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var take = Math.Clamp(query.Take, 1, QuarantinedStockQuery.MaxResults);
+
+        return
+        [
+            .. filtered
+                .OrderByDescending(row => row.QuarantinedOn)
+                .ThenBy(row => row.Source)
+                .ThenBy(row => row.MedicineName, StringComparer.Ordinal)
+                .ThenBy(row => row.MedicineBatchId)
+                .Take(take),
+        ];
+    }
     private static string? Normalise(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

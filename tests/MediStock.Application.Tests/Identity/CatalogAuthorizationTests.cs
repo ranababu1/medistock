@@ -78,6 +78,8 @@ public sealed class CatalogAuthorizationTests
             nameof(IPurchaseCatalog),
             nameof(ISaleCatalog),
             nameof(ISaleReturnCatalog),
+            nameof(ISupplierReturnCatalog),
+            nameof(IInventoryOperations),
             nameof(IReportQueries),
             nameof(ICsvExporter),
         ];

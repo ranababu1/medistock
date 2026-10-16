@@ -88,6 +88,9 @@ public enum AuditAction
     /// <summary>A batch balance was changed by hand, without a sale or a purchase explaining it.</summary>
     StockAdjusted,
 
+    /// <summary>A batch was blocked with its stock held out of sale pending disposal, such as a recall notice.</summary>
+    StockQuarantined,
+
     /// <summary>Expired or recalled stock was disposed of and its quantity left the ledger.</summary>
     StockWrittenOff,
 

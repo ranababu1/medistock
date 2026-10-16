@@ -76,6 +76,7 @@ public class AuditEntry
             or AuditAction.PurchaseReversed
             or AuditAction.ReturnRecorded
             or AuditAction.StockAdjusted
+            or AuditAction.StockQuarantined
             or AuditAction.StockWrittenOff
             or AuditAction.SupplierReturnRecorded
             or AuditAction.RestoreCompleted

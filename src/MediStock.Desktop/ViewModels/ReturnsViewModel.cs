@@ -4,8 +4,11 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MediStock.Application.Common;
+using MediStock.Application.Identity;
+using MediStock.Application.Inventory;
 using MediStock.Application.Reporting;
 using MediStock.Application.Sales;
+using MediStock.Application.Suppliers;
 using MediStock.Desktop.Services;
 using MediStock.Domain.Common;
 using MediStock.Domain.Inventory;
@@ -51,7 +54,11 @@ public sealed partial class ReturnsViewModel : ViewModelBase
     public ReturnsViewModel(
         ISaleReturnCatalog returns,
         ISaleCatalog sales,
+        ISupplierReturnCatalog supplierReturns,
+        ISupplierCatalog suppliers,
+        IStockQueries stock,
         IDialogService dialogs,
+        IUserSession session,
         IClock clock,
         ILogger<ReturnsViewModel> logger)
         : base("Returns & Adjustments")
@@ -60,7 +67,11 @@ public sealed partial class ReturnsViewModel : ViewModelBase
 
         _returns = returns;
         _sales = sales;
+        _supplierReturns = supplierReturns;
+        _suppliers = suppliers;
+        _stock = stock;
         _dialogs = dialogs;
+        _session = session;
         _clock = clock;
         _logger = logger;
 
@@ -96,6 +107,8 @@ public sealed partial class ReturnsViewModel : ViewModelBase
         // Returns are rare and worth reading back over a few days; unlike the till, this list is a
         // history rather than a shift view.
         To = clock.BusinessDate;
+
+        SetupSupplierReturns();
 
         PropertyChanged += OnOwnPropertyChanged;
     }
@@ -246,6 +259,7 @@ public sealed partial class ReturnsViewModel : ViewModelBase
         RefreshDefaultDates();
         await RefreshReturnNumberAsync(cancellationToken).ConfigureAwait(true);
         await SearchAsync(cancellationToken).ConfigureAwait(true);
+        await InitializeSupplierReturnsAsync(cancellationToken).ConfigureAwait(true);
     }
 
     /// <summary>

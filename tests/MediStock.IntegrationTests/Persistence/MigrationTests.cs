@@ -93,6 +93,8 @@ public class MigrationTests
                 "SalesReturnLines",
                 "SalesReturns",
                 "StockMovements",
+                "SupplierReturnLines",
+                "SupplierReturns",
                 "Suppliers",
                 "Users",
                 "__EFMigrationsHistory",

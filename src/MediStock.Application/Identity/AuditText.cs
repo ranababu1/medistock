@@ -38,6 +38,7 @@ public static class AuditText
         AuditAction.SaleCancelled => "Sale cancelled",
         AuditAction.ReturnRecorded => "Return taken",
         AuditAction.StockAdjusted => "Stock adjusted",
+        AuditAction.StockQuarantined => "Stock quarantined",
         AuditAction.StockWrittenOff => "Stock written off",
         AuditAction.SupplierReturnRecorded => "Returned to supplier",
         AuditAction.BackupTaken => "Backup taken",

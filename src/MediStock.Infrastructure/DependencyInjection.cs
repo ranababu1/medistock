@@ -91,6 +91,8 @@ public static class DependencyInjection
         services.AddGuardedCatalog<IPurchaseCatalog, EfPurchaseCatalog>();
         services.AddGuardedCatalog<ISaleCatalog, EfSaleCatalog>();
         services.AddGuardedCatalog<ISaleReturnCatalog, EfSaleReturnCatalog>();
+        services.AddGuardedCatalog<ISupplierReturnCatalog, EfSupplierReturnCatalog>();
+        services.AddGuardedCatalog<IInventoryOperations, EfInventoryOperations>();
         services.AddGuardedCatalog<IReportQueries, EfReportQueries>();
         services.AddGuardedCatalog<ICsvExporter, CsvReportExporter>();
 

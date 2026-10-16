@@ -48,6 +48,10 @@ public class MediStockDbContext : DbContext
 
     public DbSet<SalesReturnLine> SalesReturnLines => Set<SalesReturnLine>();
 
+    public DbSet<SupplierReturn> SupplierReturns => Set<SupplierReturn>();
+
+    public DbSet<SupplierReturnLine> SupplierReturnLines => Set<SupplierReturnLine>();
+
     public DbSet<InvoiceSequence> InvoiceSequences => Set<InvoiceSequence>();
 
     public DbSet<User> Users => Set<User>();

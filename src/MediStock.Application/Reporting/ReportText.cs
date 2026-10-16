@@ -1,4 +1,5 @@
 using System.Globalization;
+using MediStock.Application.Inventory;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Sales;
 
@@ -63,6 +64,10 @@ public static class ReportText
         ReturnDisposition.Restock => "Restocked",
         ReturnDisposition.Quarantine => "Quarantined",
         ReturnDisposition.Destroy => "Destroyed",
+
+        QuarantineSource.CustomerReturn => "Customer return",
+        QuarantineSource.Recall => "Recall",
+        QuarantineSource.WriteOff => "Write-off",
 
         _ => value.ToString(),
     };

@@ -399,6 +399,449 @@
                     </Grid>
                 </Grid>
             </Border>
+
+            <!-- Send stock back to a supplier -->
+            <Border Style="{StaticResource Card}" Padding="16" Margin="0,14,0,0">
+                <StackPanel>
+                    <StackPanel Margin="0,0,0,10">
+                        <TextBlock Text="Send stock back to a supplier" Style="{StaticResource SectionHeaderText}" />
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   TextWrapping="Wrap"
+                                   Text="Credit stock out to the supplier it was bought from. The credit is expected at the cost frozen on each batch, and each line is checked against the ledger again before the return is booked." />
+                    </StackPanel>
+
+                    <TextBlock Style="{StaticResource CaptionText}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,10"
+                               Visibility="{Binding CannotReturnToSupplier, Converter={StaticResource BoolToVisibility}}"
+                               Text="{Binding SupplierReturnRefusalNote}" />
+
+                    <StackPanel Visibility="{Binding CanReturnToSupplier, Converter={StaticResource BoolToVisibility}}">
+                        <!-- The draft's heading: who is credited, why, and by whom -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="170" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Supplier" Style="{StaticResource FieldLabelText}" />
+                                <ComboBox Style="{StaticResource ThemedComboBox}"
+                                          Margin="0,4,0,0"
+                                          ItemsSource="{Binding SupplierOptions}"
+                                          DisplayMemberPath="Name"
+                                          SelectedItem="{Binding SelectedSupplier, Mode=TwoWay}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Reason (required)" Style="{StaticResource FieldLabelText}" />
+                                <TextBox Style="{StaticResource ThemedTextBox}"
+                                         Margin="0,4,0,0"
+                                         Text="{Binding SupplierReturnReason, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Text="Supplier credit note (optional)" Style="{StaticResource FieldLabelText}" />
+                                <TextBox Style="{StaticResource ThemedTextBox}"
+                                         Margin="0,4,0,0"
+                                         Text="{Binding SupplierCreditNote, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="6">
+                                <TextBlock Text="Returned by" Style="{StaticResource FieldLabelText}" />
+                                <TextBox Style="{StaticResource ThemedTextBox}"
+                                         Margin="0,4,0,0"
+                                         Text="{Binding SupplierReturnedBy, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="8">
+                                <TextBlock Text="Next return number" Style="{StaticResource FieldLabelText}" />
+                                <TextBlock Text="{Binding NextSupplierReturnNumber}"
+                                           Style="{StaticResource MetricValueText}"
+                                           Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Batches this supplier was paid for, still with stock on hand -->
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Batch search (medicine or batch number)" Style="{StaticResource FieldLabelText}" />
+                                <TextBox Style="{StaticResource ThemedTextBox}"
+                                         Margin="0,4,0,0"
+                                         Text="{Binding BatchSearchTerm, UpdateSourceTrigger=PropertyChanged}">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Return" Command="{Binding SearchBatchChoicesCommand}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
+                            </StackPanel>
+
+                            <Button Grid.Column="2"
+                                    Content="Search batches"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Margin="0,24,0,0"
+                                    VerticalAlignment="Top"
+                                    Command="{Binding SearchBatchChoicesCommand}" />
+                        </Grid>
+
+                        <TextBlock Style="{StaticResource CaptionText}" Margin="0,0,0,8" Text="{Binding BatchChoicesSummary}" />
+
+                        <Grid>
+                            <DataGrid ItemsSource="{Binding BatchChoices}"
+                                      SelectedItem="{Binding SelectedBatchChoice, Mode=TwoWay}"
+                                      Style="{StaticResource ThemedDataGrid}"
+                                      BorderThickness="0"
+                                      Height="150"
+                                      IsReadOnly="True"
+                                      AlternationCount="2"
+                                      Margin="0,0,0,8">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="*" />
+                                    <DataGridTextColumn Header="Batch" Binding="{Binding BatchNumber}" Width="Auto" />
+                                    <DataGridTextColumn Header="Expiry" Binding="{Binding ExpiryDate, StringFormat=yyyy-MM-dd}" Width="Auto" />
+                                    <DataGridTextColumn Header="On hand" Binding="{Binding QuantityOnHand, StringFormat={}{0:0.###}}" Width="Auto" />
+                                    <DataGridTextColumn Header="Unit cost" Binding="{Binding PurchaseCost, StringFormat=N2}" Width="Auto" />
+                                    <DataGridTextColumn Header="Supplier invoice" Binding="{Binding SupplierInvoiceNumber}" Width="Auto" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       MaxWidth="420"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"
+                                       Text="No batches match. Search by medicine or batch number; only batches bought from this supplier can go back to them."
+                                       Visibility="{Binding HasNoBatchChoices, Converter={StaticResource BoolToVisibility}}" />
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Button Content="Add to return"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Command="{Binding AddSupplierReturnLineCommand}"
+                                    IsEnabled="{Binding CanAddSupplierReturnLine}"
+                                    ToolTip="Adds the picked batch to the return, asking how many units are going back." />
+                        </StackPanel>
+
+                        <!-- The lines on the draft -->
+                        <TextBlock Style="{StaticResource SectionHeaderText}" Text="Lines on this return" />
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   Margin="0,0,0,8"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding HasSupplierReturnLines, Converter={StaticResource BoolToVisibility}}"
+                                   Text="{Binding SupplierReturnDraftSummary}" />
+
+                        <Grid Visibility="{Binding HasSupplierReturnLines, Converter={StaticResource BoolToVisibility}}"
+                              Margin="0,0,0,12">
+                            <DataGrid ItemsSource="{Binding SupplierReturnLines}"
+                                      Style="{StaticResource ThemedDataGrid}"
+                                      BorderThickness="0"
+                                      Height="180"
+                                      IsReadOnly="True"
+                                      AlternationCount="2"
+                                      Margin="0,0,0,8">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="*" />
+                                    <DataGridTextColumn Header="Batch" Binding="{Binding BatchNumber}" Width="Auto" />
+                                    <DataGridTextColumn Header="Expiry" Binding="{Binding ExpiryDate, StringFormat=yyyy-MM-dd}" Width="Auto" />
+                                    <DataGridTextColumn Header="On hand" Binding="{Binding QuantityOnHand, StringFormat={}{0:0.###}}" Width="Auto" />
+                                    <DataGridTextColumn Header="Going back"
+                                                        Binding="{Binding Quantity, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.###}}"
+                                                        IsReadOnly="False"
+                                                        Width="Auto" />
+                                    <DataGridTextColumn Header="Unit cost" Binding="{Binding UnitCost, StringFormat=N2}" Width="Auto" />
+                                    <DataGridTextColumn Header="Credit expected" Binding="{Binding CreditValueText}" Width="Auto" />
+                                    <DataGridTemplateColumn Header="" Width="70">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="Remove"
+                                                        Style="{StaticResource LinkButton}"
+                                                        Command="{Binding DataContext.RemoveSupplierReturnLineCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center"
+                                        Visibility="{Binding HasSupplierReturnLines, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Style="{StaticResource SectionHeaderText}">
+                                    <Run Text="Credit expected: " />
+                                    <Run Text="{Binding ExpectedSupplierCreditText, Mode=OneWay}" FontWeight="SemiBold" />
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap"
+                                           Text="At each batch's frozen purchase cost, the figure the recorded return credits." />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Clear the draft"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,8,0"
+                                        Command="{Binding ClearSupplierReturnDraftCommand}"
+                                        IsEnabled="{Binding CanClearSupplierReturnDraft}" />
+                                <Button Content="Record supplier return"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding RecordSupplierReturnCommand}"
+                                        IsEnabled="{Binding CanRecordSupplierReturn}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Supplier return history -->
+            <Border Style="{StaticResource Card}" Padding="16" Margin="0,14,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                        <TextBlock Text="Supplier return history" Style="{StaticResource SectionHeaderText}" />
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   TextWrapping="Wrap"
+                                   Text="Returns already credited out to suppliers. Each one is history: it is corrected by a further return or a write-off, never by editing it." />
+                    </StackPanel>
+
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Return number, supplier or reason" Style="{StaticResource FieldLabelText}" />
+                            <TextBox Style="{StaticResource ThemedTextBox}"
+                                     Margin="0,4,0,0"
+                                     Text="{Binding SupplierReturnSearchTerm, UpdateSourceTrigger=PropertyChanged}">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Return" Command="{Binding SearchSupplierReturnsCommand}" />
+                                </TextBox.InputBindings>
+                            </TextBox>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="From business date" Style="{StaticResource FieldLabelText}" />
+                            <DatePicker Margin="0,4,0,0"
+                                        SelectedDate="{Binding SupplierReturnFrom, Converter={StaticResource DateOnlyToDateTime}}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="To business date" Style="{StaticResource FieldLabelText}" />
+                            <DatePicker Margin="0,4,0,0"
+                                        SelectedDate="{Binding SupplierReturnTo, Converter={StaticResource DateOnlyToDateTime}}" />
+                        </StackPanel>
+
+                        <Button Grid.Column="6"
+                                Content="Search"
+                                Style="{StaticResource SecondaryButton}"
+                                Margin="0,22,0,0"
+                                VerticalAlignment="Top"
+                                Command="{Binding SearchSupplierReturnsCommand}" />
+
+                        <Button Grid.Column="8"
+                                Content="Clear filters"
+                                Style="{StaticResource SecondaryButton}"
+                                Margin="0,22,0,0"
+                                VerticalAlignment="Top"
+                                Command="{Binding ClearSupplierReturnFiltersCommand}" />
+                    </Grid>
+
+                    <TextBlock Grid.Row="2" Style="{StaticResource CaptionText}" Margin="0,0,0,8" Text="{Binding SupplierReturnsResultSummary}" />
+
+                    <Grid Grid.Row="3">
+                        <DataGrid ItemsSource="{Binding SupplierReturns}"
+                                  SelectedItem="{Binding SelectedSupplierReturn, Mode=TwoWay}"
+                                  Style="{StaticResource ThemedDataGrid}"
+                                  BorderThickness="0"
+                                  Height="170"
+                                  IsReadOnly="True"
+                                  AlternationCount="2">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Return" Binding="{Binding ReturnNumber}" Width="Auto" />
+                                <DataGridTextColumn Header="Business date" Binding="{Binding BusinessDate, StringFormat=yyyy-MM-dd}" Width="Auto" />
+                                <DataGridTextColumn Header="Supplier" Binding="{Binding SupplierName}" Width="*" />
+                                <DataGridTextColumn Header="Units" Binding="{Binding ReturnedQuantity, StringFormat={}{0:0.###}}" Width="Auto" />
+                                <DataGridTextColumn Header="Credit expected" Binding="{Binding TotalCostValue, StringFormat=N2}" Width="Auto" />
+                                <DataGridTextColumn Header="Returned by" Binding="{Binding ReturnedBy}" Width="Auto" />
+                                <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="2*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   MaxWidth="420"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   Text="No supplier returns match these filters. Widen the date range, or clear the filters."
+                                   Visibility="{Binding HasNoSupplierReturns, Converter={StaticResource BoolToVisibility}}" />
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- Selected supplier return, opened in full -->
+            <Border Style="{StaticResource Card}" Padding="16" Margin="0,14,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="{Binding SupplierReturnDetailHeading}" Style="{StaticResource SectionHeaderText}" />
+                            <TextBlock Text="{Binding SupplierReturnDetailSummary}"
+                                       Style="{StaticResource CaptionText}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <Button Grid.Column="1"
+                                Content="Show lines"
+                                Style="{StaticResource SecondaryButton}"
+                                VerticalAlignment="Center"
+                                Command="{Binding ViewSupplierReturnDetailCommand}"
+                                IsEnabled="{Binding CanViewSupplierReturnDetail}" />
+                    </Grid>
+
+                    <DataGrid Grid.Row="1"
+                              ItemsSource="{Binding SupplierReturnDetail.Lines}"
+                              Style="{StaticResource ThemedDataGrid}"
+                              BorderThickness="0"
+                              Height="160"
+                              IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding LineNumber}" Width="40" />
+                            <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="*" />
+                            <DataGridTextColumn Header="Batch" Binding="{Binding BatchNumber}" Width="Auto" />
+                            <DataGridTextColumn Header="Units" Binding="{Binding Quantity, StringFormat={}{0:0.###}}" Width="Auto" />
+                            <DataGridTextColumn Header="Unit cost" Binding="{Binding UnitCost, StringFormat=N2}" Width="Auto" />
+                            <DataGridTextColumn Header="Credit expected" Binding="{Binding CostValue, StringFormat=N2}" Width="Auto" />
+                            <DataGridTextColumn Header="Note" Binding="{Binding Notes}" Width="2*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <!-- Stock held in quarantine -->
+            <Border Style="{StaticResource Card}" Padding="16" Margin="0,14,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                        <TextBlock Text="Stock held in quarantine" Style="{StaticResource SectionHeaderText}" />
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   TextWrapping="Wrap"
+                                   Text="Everything that must not leave the shelf: kept-back customer returns, batches under a recall notice, and batches written off. Stock leaves this list when its batch is dealt with — write-offs and further corrections are made from the Inventory screen." />
+                    </StackPanel>
+
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Medicine, batch or reason" Style="{StaticResource FieldLabelText}" />
+                            <TextBox Style="{StaticResource ThemedTextBox}"
+                                     Margin="0,4,0,0"
+                                     Text="{Binding QuarantineSearchTerm, UpdateSourceTrigger=PropertyChanged}">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Return" Command="{Binding LoadQuarantinedCommand}" />
+                                </TextBox.InputBindings>
+                            </TextBox>
+                        </StackPanel>
+
+                        <Button Grid.Column="2"
+                                Content="Search"
+                                Style="{StaticResource SecondaryButton}"
+                                Margin="0,22,0,0"
+                                VerticalAlignment="Top"
+                                Command="{Binding LoadQuarantinedCommand}" />
+
+                        <Button Grid.Column="4"
+                                Content="Clear"
+                                Style="{StaticResource SecondaryButton}"
+                                Margin="0,22,0,0"
+                                VerticalAlignment="Top"
+                                Command="{Binding ClearQuarantineSearchCommand}" />
+                    </Grid>
+
+                    <TextBlock Grid.Row="2" Style="{StaticResource CaptionText}" Margin="0,0,0,8" Text="{Binding QuarantinedResultSummary}" />
+
+                    <Grid Grid.Row="3">
+                        <DataGrid ItemsSource="{Binding Quarantined}"
+                                  Style="{StaticResource ThemedDataGrid}"
+                                  BorderThickness="0"
+                                  Height="200"
+                                  IsReadOnly="True"
+                                  AlternationCount="2">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Held because" Binding="{Binding Source, Converter={StaticResource EnumText}}" Width="Auto" />
+                                <DataGridTextColumn Header="Medicine" Binding="{Binding MedicineName}" Width="*" />
+                                <DataGridTextColumn Header="Batch" Binding="{Binding BatchNumber}" Width="Auto" />
+                                <DataGridTextColumn Header="Expiry" Binding="{Binding ExpiryDate, StringFormat=yyyy-MM-dd}" Width="Auto" />
+                                <DataGridTextColumn Header="Units" Binding="{Binding Quantity, StringFormat={}{0:0.###}}" Width="Auto" />
+                                <DataGridTextColumn Header="Held since" Binding="{Binding QuarantinedOn, StringFormat=yyyy-MM-dd}" Width="Auto" />
+                                <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="1.5*" />
+                                <DataGridTextColumn Header="Reference" Binding="{Binding Reference}" Width="Auto" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Style="{StaticResource CaptionText}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   MaxWidth="420"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   Text="Nothing is held in quarantine. Stock lands here when a customer return is kept back, or when a batch is quarantined from the Inventory screen."
+                                   Visibility="{Binding HasNoQuarantined, Converter={StaticResource BoolToVisibility}}" />
+                    </Grid>
+                </Grid>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
