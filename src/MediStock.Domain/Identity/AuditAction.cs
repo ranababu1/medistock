@@ -85,6 +85,15 @@ public enum AuditAction
     /// <summary>Medicine was taken back against an invoice.</summary>
     ReturnRecorded,
 
+    /// <summary>A batch balance was changed by hand, without a sale or a purchase explaining it.</summary>
+    StockAdjusted,
+
+    /// <summary>Expired or recalled stock was disposed of and its quantity left the ledger.</summary>
+    StockWrittenOff,
+
+    /// <summary>Stock was sent back to its supplier and the credit recorded.</summary>
+    SupplierReturnRecorded,
+
     /// <summary>A database backup was taken.</summary>
     BackupTaken,
 

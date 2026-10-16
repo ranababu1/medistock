@@ -75,6 +75,9 @@ public class AuditEntry
             or AuditAction.SaleCancelled
             or AuditAction.PurchaseReversed
             or AuditAction.ReturnRecorded
+            or AuditAction.StockAdjusted
+            or AuditAction.StockWrittenOff
+            or AuditAction.SupplierReturnRecorded
             or AuditAction.RestoreCompleted
             or AuditAction.UserRoleChanged => true,
         _ => false,

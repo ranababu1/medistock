@@ -35,6 +35,9 @@ public sealed class InvoiceSequence
     /// <summary>Prefix of customer return numbers.</summary>
     public const string ReturnsPrefix = "RET";
 
+    /// <summary>Prefix of supplier return numbers.</summary>
+    public const string SupplierReturnsPrefix = "SRET";
+
     /// <summary>Digits in the numeric part of a number, zero-padded.</summary>
     public const int NumberDigits = 6;
 

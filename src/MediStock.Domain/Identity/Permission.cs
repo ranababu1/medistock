@@ -39,4 +39,13 @@ public enum Permission
 
     /// <summary>Read the audit trail.</summary>
     ViewAuditTrail,
+
+    /// <summary>
+    /// Correct a batch balance by hand and dispose of expired or recalled stock. One permission,
+    /// because both say the shelf is wrong without a sale or a purchase explaining why.
+    /// </summary>
+    AdjustStock,
+
+    /// <summary>Send medicine back to its supplier and record the credit.</summary>
+    ReturnToSupplier,
 }

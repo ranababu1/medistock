@@ -61,6 +61,10 @@ public static class RoleCatalog
             Permission.ReceivePurchases,
             Permission.ManageSuppliers,
             Permission.RunReports,
+
+            // Expired stock is disposed of by whoever finds it, and in a pharmacy that is the
+            // pharmacist; the decision that stock has left the sellable shelf is theirs to make.
+            Permission.AdjustStock,
         };
 
         return new Dictionary<Role, PermissionSet>
@@ -80,6 +84,10 @@ public static class RoleCatalog
                 Permission.ManageSuppliers,
                 Permission.ReceivePurchases,
                 Permission.RunReports,
+
+                // Counting the shelf and sending goods back are the store room's own work.
+                Permission.AdjustStock,
+                Permission.ReturnToSupplier,
             ]),
         };
     }

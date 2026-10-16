@@ -160,6 +160,78 @@ public class MedicineBatchTests
     }
 
     [Fact]
+    public void WriteOffRemainingStock_disposes_the_whole_balance_in_one_step()
+    {
+        var batch = Received(10m);
+
+        var disposed = batch.WriteOffRemainingStock("Expired; destroyed under the disposal SOP.", BatchStatus.WrittenOff, Now);
+
+        Assert.Equal(10m, disposed);
+        Assert.Equal(0m, batch.QuantityOnHand);
+        Assert.Equal(BatchStatus.WrittenOff, batch.Status);
+        Assert.Equal("Expired; destroyed under the disposal SOP.", batch.StatusReason);
+        Assert.False(batch.IsSellableOn(Today));
+    }
+
+    [Fact]
+    public void WriteOffRemainingStock_can_dispose_a_batch_that_was_marked_first()
+    {
+        // Mark-then-dispose is the recall workflow: the batch is blocked while the notice is acted on,
+        // and only when the goods leave does the balance move. No sequence of the older operations
+        // could do this, because a blocked batch refused to be decreased.
+        var batch = Received(10m);
+        batch.WriteOff("Manufacturer recall RC-14.", BatchStatus.Recalled, Now);
+
+        var disposed = batch.WriteOffRemainingStock("Returned under recall RC-14.", BatchStatus.Recalled, Now);
+
+        Assert.Equal(10m, disposed);
+        Assert.Equal(0m, batch.QuantityOnHand);
+        Assert.Equal(BatchStatus.Recalled, batch.Status);
+        Assert.Equal("Returned under recall RC-14.", batch.StatusReason);
+    }
+
+    [Fact]
+    public void WriteOffRemainingStock_from_an_expired_batch_records_the_outcome_not_depletion()
+    {
+        var batch = Received(10m, expiry: Today.AddDays(-1), receivedOn: Today.AddDays(-30));
+        batch.RefreshExpiryStatus(Today, Now);
+
+        batch.WriteOffRemainingStock("Expired on the shelf.", BatchStatus.WrittenOff, Now);
+
+        // Destroyed, not merely sold out: a Depleted status would hide that the stock was written off.
+        Assert.Equal(BatchStatus.WrittenOff, batch.Status);
+        Assert.Equal(0m, batch.QuantityOnHand);
+    }
+
+    [Fact]
+    public void WriteOffRemainingStock_refuses_an_empty_batch()
+    {
+        var batch = Received(10m);
+        batch.DecreaseQuantity(10m, Now);
+
+        var exception = Assert.Throws<DomainValidationException>(
+            () => batch.WriteOffRemainingStock("Expired.", BatchStatus.WrittenOff, Now));
+
+        Assert.Contains("has no quantity left to write off.", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WriteOffRemainingStock_requires_a_reason()
+        => Assert.Throws<DomainValidationException>(
+            () => Received(10m).WriteOffRemainingStock("   ", BatchStatus.WrittenOff, Now));
+
+    [Theory]
+    [InlineData(BatchStatus.Active)]
+    [InlineData(BatchStatus.Depleted)]
+    [InlineData(BatchStatus.Expired)]
+    public void WriteOffRemainingStock_rejects_a_status_that_is_not_an_outcome(BatchStatus status)
+    {
+        var batch = Received(10m);
+
+        Assert.Throws<DomainValidationException>(() => batch.WriteOffRemainingStock("Reason.", status, Now));
+    }
+
+    [Fact]
     public void RefreshExpiryStatus_only_flags_batches_that_are_genuinely_expired()
     {
         var batch = Received(10m, expiry: Today.AddDays(1), receivedOn: Today.AddDays(-30));

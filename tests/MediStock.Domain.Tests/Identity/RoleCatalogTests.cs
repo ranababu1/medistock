@@ -122,6 +122,36 @@ public class RoleCatalogTests
         Assert.True(pharmacist.Has(Permission.ProcessReturns));
     }
 
+    [Fact]
+    public void Stock_corrections_do_not_follow_from_the_till()
+    {
+        // An adjustment or a write-off changes what the shelf holds without a sale or a purchase
+        // explaining it, so it never follows from Sell. The pharmacist disposes of expired stock —
+        // that decision is theirs — and the store room counts the shelf. A cashier must hand both to
+        // somebody else, on purpose rather than by accident.
+        var cashier = RoleCatalog.PermissionsFor(Role.Cashier);
+
+        Assert.False(cashier.Has(Permission.AdjustStock));
+        Assert.False(cashier.Has(Permission.ReturnToSupplier));
+
+        Assert.True(RoleCatalog.PermissionsFor(Role.Pharmacist).Has(Permission.AdjustStock));
+
+        var storeRoom = RoleCatalog.PermissionsFor(Role.InventoryOperator);
+        Assert.True(storeRoom.Has(Permission.AdjustStock));
+        Assert.True(storeRoom.Has(Permission.ReturnToSupplier));
+    }
+
+    [Fact]
+    public void Only_the_store_room_and_the_administrator_send_goods_back_to_a_supplier()
+    {
+        // Sending stock back moves goods out for credit and belongs to whoever keeps the store room,
+        // not to the counter. The pharmacist can dispose of expired stock but does not ship it back.
+        Assert.False(RoleCatalog.PermissionsFor(Role.Pharmacist).Has(Permission.ReturnToSupplier));
+        Assert.False(RoleCatalog.PermissionsFor(Role.Cashier).Has(Permission.ReturnToSupplier));
+        Assert.True(RoleCatalog.PermissionsFor(Role.InventoryOperator).Has(Permission.ReturnToSupplier));
+        Assert.True(RoleCatalog.PermissionsFor(Role.Administrator).Has(Permission.ReturnToSupplier));
+    }
+
     [Theory]
     [InlineData("Administrator", Role.Administrator)]
     [InlineData("administrator", Role.Administrator)]

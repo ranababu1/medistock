@@ -19,6 +19,8 @@ public static class IdentityText
         Permission.ManageUsers => "Manage users",
         Permission.BackupDatabase => "Back up the database",
         Permission.ViewAuditTrail => "Read the audit trail",
+        Permission.AdjustStock => "Adjust stock",
+        Permission.ReturnToSupplier => "Return stock to suppliers",
         _ => permission.ToString(),
     };
 
@@ -35,6 +37,8 @@ public static class IdentityText
         Permission.ManageUsers => "Create, deactivate and re-role other users.",
         Permission.BackupDatabase => "Take and restore database backups.",
         Permission.ViewAuditTrail => "Read the audit trail.",
+        Permission.AdjustStock => "Correct a batch count and write off expired or recalled stock.",
+        Permission.ReturnToSupplier => "Send medicine back to its supplier and record the credit.",
         _ => permission.Label(),
     };
 

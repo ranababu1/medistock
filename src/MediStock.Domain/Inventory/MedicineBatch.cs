@@ -232,6 +232,47 @@ public class MedicineBatch
         UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
     }
 
+    /// <summary>
+    /// Disposes of the whole remaining balance: the quantity leaves the batch in the same step as the
+    /// outcome is recorded, and the caller writes one movement for the quantity this returns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the disposal half of a write-off; <see cref="WriteOff"/> only blocks a batch. It is
+    /// composed here rather than built from <see cref="DecreaseQuantity"/>, because a decrease that
+    /// empties a batch marks it <see cref="BatchStatus.Depleted"/> — a batch whose stock was destroyed
+    /// must say so — and a batch already blocked by <see cref="WriteOff"/> refuses to be decreased at
+    /// all, so no sequence of the existing operations could dispose of one.
+    /// </para>
+    /// <para>
+    /// The whole balance is disposed of, never part of it: a batch that has lost some of its stock is
+    /// adjusted (with a reason), a batch whose stock has left for good is written off.
+    /// </para>
+    /// </remarks>
+    /// <returns>The quantity that left the ledger, for the caller's movement.</returns>
+    public decimal WriteOffRemainingStock(
+        string reason,
+        BatchStatus status = BatchStatus.WrittenOff,
+        DateTimeOffset? nowUtc = null)
+    {
+        if (status is not (BatchStatus.WrittenOff or BatchStatus.Recalled))
+        {
+            throw new DomainValidationException($"'{status}' is not a valid write-off outcome.");
+        }
+
+        if (QuantityOnHand == 0m)
+        {
+            throw new DomainValidationException($"Batch '{BatchNumber}' has no quantity left to write off.");
+        }
+
+        StatusReason = Guard.Required(reason, StockMovement.ReasonMaxLength, "Reason");
+        var writtenOff = QuantityOnHand;
+        QuantityOnHand = 0m;
+        Status = status;
+        UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
+        return writtenOff;
+    }
+
     /// <summary>Recomputes the cached status for a batch that is simply past its expiry date.</summary>
     public bool RefreshExpiryStatus(DateOnly businessDate, DateTimeOffset? nowUtc = null)
     {
