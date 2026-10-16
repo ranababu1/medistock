@@ -4,7 +4,7 @@ All notable changes to MediStock are recorded here, **newest first**.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), with `MINOR` tracking the
-milestone (`0.5.0` = Milestone 5). See [`plan.md`](plan.md) §8 for the versioning scheme.
+milestone (`0.6.0` = Milestone 4b). See [`plan.md`](plan.md) §8 for the versioning scheme.
 
 Each released version records the **commit**, the **date**, and what changed. Dates are local
 (India Standard Time, UTC+5:30). Entries are grouped as Added / Changed / Fixed / Removed /
@@ -12,7 +12,10 @@ Security, in that order.
 
 ---
 
-## [Unreleased]
+## [0.6.0] — Milestone 4b: stock corrections, supplier returns and quarantine
+
+**Commits** `89f6ebf` (feature) + `fd8326c` (docs) · **Date** 2026-10-16 ·
+*Add stock corrections and supplier returns to the working application*
 
 ### Added
 
@@ -321,7 +324,9 @@ Security, in that order.
 
 ---
 
-[Unreleased]: https://github.com/ranababu1/medistock/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ranababu1/medistock/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ranababu1/medistock/releases/tag/v0.6.0
+[0.5.0]: https://github.com/ranababu1/medistock/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ranababu1/medistock/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ranababu1/medistock/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ranababu1/medistock/releases/tag/v0.2.0
