@@ -34,11 +34,12 @@ namespace MediStock.Infrastructure.Identity;
 internal sealed class EfAuthenticationService : IAuthenticationService
 {
     /// <summary>
-    /// A hash that no password matches, checked when there is no account to check against. Its cost is the
-    /// point: refusing an unknown name must take as long as refusing a wrong password.
+    /// A hash that no password matches, checked when there is no account to check against. Built with the
+    /// same hasher, and therefore the same work factor, as real accounts: its cost is the point — refusing
+    /// an unknown name must take as long as refusing a wrong password, or the prompt would reveal which
+    /// names exist by timing the refusals.
     /// </summary>
-    private static readonly string DecoyHash =
-        PasswordHash.Create("a password nobody types", PasswordHash.MinimumIterations).Encoded;
+    private readonly string _decoyHash;
 
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly UserSession _session;
@@ -58,6 +59,10 @@ internal sealed class EfAuthenticationService : IAuthenticationService
         _hasher = hasher ?? throw new ArgumentNullException(nameof(hasher));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        // Through the injected hasher rather than a fixed hash, so the decoy can never cost less than a
+        // real account's work factor and the unknown-account path stays indistinguishable in time.
+        _decoyHash = _hasher.Hash("a password nobody types").Encoded;
     }
 
     public async Task<bool> IsSetUpAsync(CancellationToken cancellationToken = default)
@@ -325,7 +330,7 @@ internal sealed class EfAuthenticationService : IAuthenticationService
     /// Checks a password against a hash that matches nothing, purely so that the unknown-account path costs
     /// the same as the wrong-password path.
     /// </summary>
-    private bool CheckDecoy(string? password) => _hasher.Verify(password, DecoyHash);
+    private bool CheckDecoy(string? password) => _hasher.Verify(password, _decoyHash);
 
     private static UserDto ToDto(User user) => new(
         user.Id,
