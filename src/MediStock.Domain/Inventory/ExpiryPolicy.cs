@@ -26,6 +26,14 @@ public static class ExpiryPolicy
         return IsSellable(batch.Status, batch.ExpiryDate, batch.QuantityOnHand, businessDate);
     }
 
+    /// <summary>
+    /// True while a batch could have returned stock put back on its shelf. A depleted batch qualifies:
+    /// the commonest return is a pack from a batch that has since sold out, and it belongs back in the
+    /// same batch so its expiry date still governs it.
+    /// </summary>
+    public static bool CanBeRestocked(BatchStatus status, DateOnly expiryDate, DateOnly businessDate)
+        => status is BatchStatus.Active or BatchStatus.Depleted && !IsExpired(expiryDate, businessDate);
+
     /// <summary>Days remaining before expiry; negative once the batch has expired.</summary>
     public static int DaysUntilExpiry(DateOnly expiryDate, DateOnly businessDate)
         => expiryDate.DayNumber - businessDate.DayNumber;

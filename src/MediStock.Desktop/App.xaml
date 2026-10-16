@@ -13,7 +13,9 @@
 
             <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
             <conv:NotNullToBooleanConverter x:Key="NotNull" />
+            <conv:NotNullToVisibilityConverter x:Key="NotNullVisible" />
             <conv:ActiveStatusConverter x:Key="ActiveStatus" />
+            <conv:EnumTextConverter x:Key="EnumText" />
             <conv:DateOnlyToDateTimeConverter x:Key="DateOnlyToDateTime" />
 
             <!-- View-model to view mapping used by the shell's content region. -->
@@ -37,6 +39,12 @@
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:SalesHistoryViewModel}">
                 <views:SalesHistoryView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ReturnsViewModel}">
+                <views:ReturnsView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ReportsViewModel}">
+                <views:ReportsView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />

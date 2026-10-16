@@ -111,6 +111,7 @@ public sealed partial class SalesHistoryViewModel : ViewModelBase
     public override Task InitializeAsync(CancellationToken cancellationToken = default) =>
         SearchAsync(cancellationToken);
 
+    /// <summary>Runs the search behind the filters and replaces the list on screen.</summary>
     [RelayCommand]
     private async Task SearchAsync(CancellationToken cancellationToken)
     {
@@ -140,6 +141,7 @@ public sealed partial class SalesHistoryViewModel : ViewModelBase
             }
 
             HasSearched = true;
+            NotifyHistoryChanged();
 
             if (SelectedSale is not null)
             {
@@ -201,6 +203,19 @@ public sealed partial class SalesHistoryViewModel : ViewModelBase
     }
 
     partial void OnHasSearchedChanged(bool value) => OnPropertyChanged(nameof(HasNoResults));
+
+    /// <summary>
+    /// The list is replaced as a whole, so the figures derived from it have to be read again rather than
+    /// left as they were when the screen was still empty.
+    /// </summary>
+    private void NotifyHistoryChanged()
+    {
+        OnPropertyChanged(nameof(ResultSummary));
+        OnPropertyChanged(nameof(ListedTotalText));
+        OnPropertyChanged(nameof(HasNoResults));
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(DetailHeading));
+    }
 
     private void OnOwnPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

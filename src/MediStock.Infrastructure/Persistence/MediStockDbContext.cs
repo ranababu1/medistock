@@ -43,6 +43,10 @@ public class MediStockDbContext : DbContext
 
     public DbSet<Payment> Payments => Set<Payment>();
 
+    public DbSet<SalesReturn> SalesReturns => Set<SalesReturn>();
+
+    public DbSet<SalesReturnLine> SalesReturnLines => Set<SalesReturnLine>();
+
     public DbSet<InvoiceSequence> InvoiceSequences => Set<InvoiceSequence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

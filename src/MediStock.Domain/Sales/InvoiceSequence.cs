@@ -4,7 +4,8 @@ using MediStock.Domain.Common;
 namespace MediStock.Domain.Sales;
 
 /// <summary>
-/// The counter behind invoice numbers. One row per numbering period, holding the last number issued.
+/// The counter behind the pharmacy's numbered documents. One row per numbering period, holding the last
+/// number issued.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,12 +19,23 @@ namespace MediStock.Domain.Sales;
 /// <c>INV-2027-000001</c>. Numbers are never reissued, so a cancelled sale leaves a gap. Gaps are
 /// acceptable; duplicates are not.
 /// </para>
+/// <para>
+/// Returns are numbered from the same table under their own <see cref="ReturnsPrefix"/>, because they
+/// are the same problem: a document number that must be unique and never reused, issued while other
+/// tills are working.
+/// </para>
 /// </remarks>
 public sealed class InvoiceSequence
 {
     public const int SequenceKeyMaxLength = 32;
 
-    /// <summary>Digits in the numeric part of an invoice number, zero-padded.</summary>
+    /// <summary>Prefix of sale invoice numbers.</summary>
+    public const string SalesPrefix = "INV";
+
+    /// <summary>Prefix of customer return numbers.</summary>
+    public const string ReturnsPrefix = "RET";
+
+    /// <summary>Digits in the numeric part of a number, zero-padded.</summary>
     public const int NumberDigits = 6;
 
     /// <summary>Required by Entity Framework Core.</summary>
@@ -42,8 +54,12 @@ public sealed class InvoiceSequence
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
     /// <summary>The numbering period a business date belongs to.</summary>
-    public static string KeyFor(DateOnly businessDate) =>
-        string.Create(CultureInfo.InvariantCulture, $"INV-{businessDate.Year:D4}");
+    public static string KeyFor(DateOnly businessDate, string prefix = SalesPrefix)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+
+        return string.Create(CultureInfo.InvariantCulture, $"{prefix}-{businessDate.Year:D4}");
+    }
 
     public static InvoiceSequence Start(string sequenceKey, DateTimeOffset nowUtc)
     {
@@ -69,7 +85,7 @@ public sealed class InvoiceSequence
 
         if (number <= 0)
         {
-            throw new DomainValidationException("An invoice number must be positive.");
+            throw new DomainValidationException("A document number must be positive.");
         }
 
         return string.Create(

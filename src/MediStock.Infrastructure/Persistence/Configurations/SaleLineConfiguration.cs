@@ -21,6 +21,25 @@ internal sealed class SaleLineConfiguration : IEntityTypeConfiguration<SaleLine>
             table.HasCheckConstraint("CK_SaleLines_Discount_Within_Gross", "[DiscountAmount] <= [GrossAmount]");
             table.HasCheckConstraint("CK_SaleLines_LineNumber_Positive", "[LineNumber] > 0");
 
+            // What has been returned can never exceed what was sold, and never refunds more than was
+            // charged. The domain checks this too; the constraint is what makes it true of the table.
+            table.HasCheckConstraint(
+                "CK_SaleLines_Returned_Within_Sold",
+                "[ReturnedQuantity] >= 0 AND [ReturnedQuantity] <= [Quantity]");
+            table.HasCheckConstraint(
+                "CK_SaleLines_ReturnedAmount_Within_LineTotal",
+                "[ReturnedAmount] >= 0 AND [ReturnedAmount] <= [LineTotal]");
+            table.HasCheckConstraint(
+                "CK_SaleLines_ReturnedTax_Within_Tax",
+                "[ReturnedTax] >= 0 AND [ReturnedTax] <= [TaxAmount]");
+
+            // LineCost is computed from the quantity and unit cost, so the constraint spells the
+            // multiplication out rather than naming a column the table does not have. Rounding it the
+            // same way the domain does keeps the two equal rather than merely close.
+            table.HasCheckConstraint(
+                "CK_SaleLines_ReturnedCost_Within_LineCost",
+                "[ReturnedCost] >= 0 AND [ReturnedCost] <= ROUND([Quantity] * [UnitCost], 2)");
+
             // The stored money must agree with the pricing rules that produced it, so a hand-edited or
             // partially written line cannot look like a legitimate one.
             table.HasCheckConstraint(
@@ -33,8 +52,15 @@ internal sealed class SaleLineConfiguration : IEntityTypeConfiguration<SaleLine>
 
         builder.HasKey(l => l.Id);
 
+        // A return rewrites the returned quantities on the line, so the write is conditional: an operator
+        // who refunds the last unit while another till is refunding the same unit matches no row and is
+        // refused, instead of both returns committing and the shelf being credited twice. See ADR 0006
+        // and ADR 0008.
+        builder.Property<byte[]>(ConcurrencyToken.RowVersion).IsRowVersion();
+
         builder.Property(l => l.MedicineName).HasMaxLength(SaleLine.MedicineNameMaxLength).IsRequired();
         builder.Property(l => l.Quantity).HasPrecision(18, 3).IsRequired();
+        builder.Property(l => l.ReturnedQuantity).HasPrecision(18, 3).IsRequired();
 
         foreach (var money in new[]
                  {
@@ -45,6 +71,9 @@ internal sealed class SaleLineConfiguration : IEntityTypeConfiguration<SaleLine>
                      nameof(SaleLine.TaxableAmount),
                      nameof(SaleLine.TaxAmount),
                      nameof(SaleLine.LineTotal),
+                     nameof(SaleLine.ReturnedAmount),
+                     nameof(SaleLine.ReturnedTax),
+                     nameof(SaleLine.ReturnedCost),
                  })
         {
             builder.Property<decimal>(money).HasPrecision(18, 2).IsRequired();

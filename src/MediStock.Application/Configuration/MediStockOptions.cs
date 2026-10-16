@@ -28,4 +28,7 @@ public sealed class MediStockOptions
     /// documents folder, so the default does not depend on where the executable was started from.
     /// </summary>
     public string ReceiptFolder { get; set; } = @"MediStock\Receipts";
+
+    /// <summary>Folder that exported report files are written to, resolved the same way as receipts.</summary>
+    public string ReportFolder { get; set; } = @"MediStock\Reports";
 }

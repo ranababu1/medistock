@@ -13,14 +13,22 @@ internal sealed class SaleLineBatchAllocationConfiguration : IEntityTypeConfigur
         builder.ToTable("SaleLineBatchAllocations", table =>
         {
             table.HasCheckConstraint("CK_SaleLineBatchAllocations_Quantity_Positive", "[Quantity] > 0");
+            table.HasCheckConstraint(
+                "CK_SaleLineBatchAllocations_Returned_Within_Allocated",
+                "[ReturnedQuantity] >= 0 AND [ReturnedQuantity] <= [Quantity]");
         });
 
         builder.HasKey(a => a.Id);
+
+        // The per-batch guard is written by a return as well, and for the same reason as the line's:
+        // two operators must not both be able to return the last unit of a batch. See ADR 0008.
+        builder.Property<byte[]>(ConcurrencyToken.RowVersion).IsRowVersion();
 
         builder.Property(a => a.BatchNumber)
             .HasMaxLength(MediStock.Domain.Inventory.MedicineBatch.BatchNumberMaxLength)
             .IsRequired();
         builder.Property(a => a.Quantity).HasPrecision(18, 3).IsRequired();
+        builder.Property(a => a.ReturnedQuantity).HasPrecision(18, 3).IsRequired();
         builder.Property(a => a.ExpiryDate).HasColumnType("date").IsRequired();
 
         builder.HasOne(a => a.SaleLine)

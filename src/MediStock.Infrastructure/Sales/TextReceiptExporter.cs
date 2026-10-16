@@ -39,7 +39,7 @@ internal sealed class TextReceiptExporter : IReceiptExporter
     {
         ArgumentNullException.ThrowIfNull(sale);
 
-        var folder = ResolveFolder(_options.ReceiptFolder);
+        var folder = OutputFolder.Resolve(_options.ReceiptFolder, @"MediStock\Receipts");
         Directory.CreateDirectory(folder);
 
         var path = Path.Combine(folder, $"{FileName(sale)}.txt");
@@ -55,30 +55,12 @@ internal sealed class TextReceiptExporter : IReceiptExporter
         return new ReceiptExport(sale.InvoiceNumber, path);
     }
 
-    /// <summary>A relative folder is resolved against the user's documents so the executable's own working directory does not matter.</summary>
-    private static string ResolveFolder(string configured)
-    {
-        var folder = string.IsNullOrWhiteSpace(configured) ? @"MediStock\Receipts" : configured.Trim();
-
-        return Path.GetFullPath(
-            Path.IsPathRooted(folder)
-                ? folder
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), folder));
-    }
-
     /// <summary>
     /// The invoice number is already restricted to digits, letters and dashes, but it becomes a file name
     /// here, so anything a file system could object to is replaced rather than trusted.
     /// </summary>
     private static string FileName(SaleDto sale)
-    {
-        var safe = new string([.. sale.InvoiceNumber
-            .Select(character => Path.GetInvalidFileNameChars().Contains(character) || character is '\\' or '/' or ':'
-                ? '_'
-                : character)]);
-
-        return string.IsNullOrWhiteSpace(safe) ? $"sale-{sale.Id}" : safe;
-    }
+        => OutputFolder.SafeFileName(sale.InvoiceNumber, $"sale-{sale.Id}");
 
     private static string Render(SaleDto sale)
     {

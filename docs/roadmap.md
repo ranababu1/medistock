@@ -116,34 +116,81 @@ settlement and invoice numbering), [ADR 0002](decisions/0002-expiry-date-interpr
 [ADR 0003](decisions/0003-inventory-valuation.md) (why cost of goods sold is not valuation).
 
 **Known gaps, deliberately left open:** a line is priced at the first allocated batch's selling price;
-tax is one rate per line; there are no percentage, basket-level or loyalty discounts; returns and
-cancellations do not exist yet; and CSV/PDF report export is Milestone 4 work. A pharmacist must
+tax is one rate per line; and there are no percentage, basket-level or loyalty discounts. Returns,
+cancellations and CSV report export were the gaps left over at the end of this milestone; all three
+arrived in Milestone 4 — see [ADR 0008](decisions/0008-sales-returns-and-stock-disposition.md) and the
+Milestone 4 evidence below. PDF and Excel exports remain unimplemented. A pharmacist must
 confirm the discount, tax and pricing rules, and a tax professional the invoice format, before real
 use — see the note at the end of ADR 0007.
 
 ---
 
-## Milestone 4 — Returns, expiry, and reports ⏳
+## Milestone 4 — Returns, expiry, and reports ✅
 
 **Tasks**
 
-- Implement sale returns and reversals.
-- Add near-expiry and expired stock views.
-- Add low-stock alerts.
-- Build sales, purchasing, stock, and valuation reports.
-- Add CSV export.
+- ✅ Implement sale returns and reversals.
+- ✅ Add near-expiry and expired stock views.
+- ✅ Add low-stock alerts.
+- ✅ Build sales, purchasing, stock, and valuation reports.
+- ✅ Add CSV export.
 
 **Acceptance criteria**
 
-- Returns reference original transactions and respect returnable quantities.
-- Restocking returned items requires an explicit disposition.
-- Report totals reconcile with transaction data.
-- Date-range boundaries and local business-date handling are tested.
+- ✅ Returns reference original transactions and respect returnable quantities.
+- ✅ Restocking returned items requires an explicit disposition.
+- ✅ Report totals reconcile with transaction data.
+- ✅ Date-range boundaries and local business-date handling are tested.
 
-**Present state:** low-stock and near-expiry read models already back the dashboard. The counter now
-writes invoices, payments, allocations and movements, so the reports have real transactions to
-reconcile against. Returns must credit against `SaleLineBatchAllocations`, respect the returnable
-quantity, and require an explicit disposition before anything goes back on the shelf as sellable.
+**Evidence:** `tests\MediStock.IntegrationTests\Sales\SaleReturnCatalogTests.cs` takes medicine back off a
+real invoice: a part return, the same units returned twice, an expired batch that may not be restocked,
+a quarantined line that leaves the ledger alone, a return against a cancelled invoice, two tills racing
+to refund the same unit, and the return number sequence. `tests\MediStock.Domain.Tests\Sales\SalesReturnTests.cs`
+proves the arithmetic with no database — the counter's preview equals the recorded refund, and a line
+split across several entries returns exactly its total, to the paisa.
+`tests\MediStock.IntegrationTests\Reporting\ReportQueriesTests.cs` runs every one of the ten definitions and
+checks each comes back as a drawable, self-describing table — a title, a subtitle saying what was asked for,
+unique headers and rows exactly as wide as the columns claim — then reconciles the reports that carry money
+with the transactions they summarise, including the day's takings moving by exactly one return.
+`scripts\dev\check-reconciliation.ps1` grew three checks for the new tables and still prints `OK` for all
+six: what a line says has come back must be what its return lines recorded (in units, refund, tax and
+cost), a return's total must be its lines, and the restock movements must match the lines that say
+`Restock` — nothing for a line that was quarantined or destroyed.
+
+Returned money is shared proportionally, with the exact remainder on the entry that clears the line, so a
+fully returned invoice refunds precisely what it charged. `Quarantine` and `Destroy` write no movement at
+all, because the units never went back on the shelf. Both rules, and the reason a refund is not a
+`Payment`, are recorded in [ADR 0008](decisions/0008-sales-returns-and-stock-disposition.md); what
+"expired" means at the counter is still [ADR 0002](decisions/0002-expiry-date-interpretation.md), and the
+valuation the reports print is still [ADR 0003](decisions/0003-inventory-valuation.md).
+
+---
+
+## Milestone 4b — Manual adjustments and expiry write-offs ⏳
+
+Carried over from §3.3 of the plan: "Require a reason for manual adjustments and expiry write-offs."
+This is split out of Milestone 4 rather than smuggled into it, because the workflow needs a pharmacist
+to say what the reason codes are and what happens to written-off stock before the screen is worth
+building.
+
+**Tasks**
+
+- Add an adjustment screen: increase or decrease a batch balance, with a mandatory reason.
+- Add an expiry write-off that names the batch, the quantity and the reason, and leaves the history in
+  place.
+- Show quarantined stock as owned but unsellable, if the pharmacy wants it visible at all.
+- Add supplier returns and the movement they create.
+
+**Acceptance criteria**
+
+- Every adjustment writes exactly one typed movement with a reason, and never edits or deletes an
+existing one.
+- Quantity on hand still reconciles with the ledger after any adjustment.
+- A write-off cannot take a batch below zero, and cannot be recorded without a reason.
+
+The movement types (`AdjustmentIncrease`, `AdjustmentDecrease`, `ExpiryWriteOff`), the reason
+requirement and the stock-movement schema already exist and are tested; what is missing is the workflow
+and its screen. Nothing in Milestone 5 depends on it.
 
 ---
 

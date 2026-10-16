@@ -64,6 +64,7 @@ The desktop project references Infrastructure **only** so the composition root c
 | Catalogue | `Medicine`, `DosageForm` |
 | Suppliers | `Supplier` |
 | Inventory | `MedicineBatch`, `BatchStatus`, `StockMovement`, `StockMovementType`, `InsufficientStockException`, `BatchAvailability`, `BatchAllocation`, `FefoAllocator`, `ExpiryPolicy` |
+| Sales | `Sale`, `SaleStatus`, `SaleLine`, `SaleLineBatchAllocation`, `Payment`, `PaymentMethod`, `InvoiceSequence`, `SalesReturn`, `SalesReturnLine`, `SalesReturnLineRequest`, `ReturnDisposition` |
 
 Rules enforced here, not in the UI:
 
@@ -73,6 +74,16 @@ Rules enforced here, not in the UI:
 - A stock movement's `QuantityDelta` is never zero; `QuantityAfter` is never negative.
 - Certain movement types (`Adjustment`, `Expiry write-off`, `Damage`, `Return`, …) require a reason.
 - `FefoAllocator` allocates stock first-expiry-first-out across eligible batches only.
+- An invoice is created completed, and its stored totals are the sum of its own already-rounded line
+  values, so the lines add up to the total they print under.
+- A return is planned as a whole and refused as a whole: the invoice is not cancelled, the business date
+  is not before the invoice's, the line really sold the batch it names, the quantity is within what is
+  left of the allocation, and a `Restock` targets a batch that `ExpiryPolicy` still allows to take stock
+  back. Nothing is applied until every line has passed.
+- Returned money — the refund, the tax and the cost — is shared across the returned quantity
+  proportionally, except on the entry that clears the line, which takes the exact remainder, so a fully
+  returned line refunds precisely what it charged. See
+  [ADR 0008](decisions/0008-sales-returns-and-stock-disposition.md).
 
 `Money` centralises currency rounding so no call site picks its own `MidpointRounding` — see
 [ADR 0003](decisions/0003-inventory-valuation.md).
@@ -87,6 +98,16 @@ Rules enforced here, not in the UI:
 | Catalogue | `MedicineDto`, `MedicineDraft`, `MedicineSearchQuery`, `IMedicineCatalog` |
 | Dashboard | `IDashboardQueries`, `DashboardSnapshot`, `LowStockItem`, `ExpiringBatch` |
 | Sales | `SaleDraft`, `SaleLineDraft`, `PaymentDraft`, `SaleQuote`, `SaleDto`, `SaleLineDto`, `SaleAllocationDto`, `PaymentDto`, `SaleQuery`, `ISaleCatalog`, `ISalesQueries`, `IReceiptExporter` |
+| Returns | `SalesReturnDraft`, `SalesReturnLineDraft`, `SalesReturnDto`, `SalesReturnLineDto`, `SalesReturnQuery`, `ISaleReturnCatalog` |
+| Reporting | `ReportDefinition`, `ReportDefinitions`, `ReportRequest`, `ReportTable`, `ReportColumn`, `ReportText`, `IReportQueries`, `ICsvExporter` |
+
+`ISaleReturnCatalog` is deliberately separate from `ISaleCatalog`: taking medicine back and selling it are
+separate use cases, with separate permissions once Milestone 5 lands, and a return reads a projection of
+the invoice rather than the full aggregate. `IReportQueries` has one method — `RunAsync(ReportRequest)` —
+because a report is a question with a shape, not a family of endpoints: `ReportDefinitions` names the ten
+shipped reports, and each definition says whether it needs a date range, a horizon or a row limit.
+`ReportTable` carries a title, a subtitle, typed columns and rows of `object?`, and `ReportText` is the one
+place that turns a value into what a report reader sees, so the grid and the CSV cannot disagree.
 
 `OperationResult` (and its generic form) is the standard outcome for a use case: a success flag, a
 message and a list of errors. `OperationResult.From(Exception)` maps `DomainException` messages
@@ -107,10 +128,12 @@ a complete list of problems in one pass instead of one exception at a time.
 | Purchasing | `EfPurchaseCatalog` |
 | Inventory | `EfStockQueries` |
 | Sales | `EfSaleCatalog`, `EfSalesQueries`, `EfInvoiceNumberAllocator`, `TextReceiptExporter` |
+| Returns | `EfSaleReturnCatalog`, `SalesReturnProjection` |
+| Reporting | `EfReportQueries`, `CsvReportExporter` |
 | Dashboard | `EfDashboardQueries` |
 | Diagnostics | `SqlServerDatabaseHealthCheck` |
 | Time | `SystemClock` |
-| Composition | `DependencyInjection` |
+| Composition | `DependencyInjection`, `UnitOfWorkRetry` |
 
 `MediStockDbContextFactory` implements `IDesignTimeDbContextFactory<MediStockDbContext>` so
 `dotnet ef` works without booting WPF.
@@ -134,10 +157,12 @@ Desktop/
 │                                      SupplierEditorViewModel, PurchasesViewModel,
 │                                      PurchaseEditorViewModel, PurchaseLineEditorViewModel,
 │                                      InventoryViewModel, NewSaleViewModel, CartLineViewModel,
-│                                      SalesHistoryViewModel, PlaceholderViewModel
+│                                      SalesHistoryViewModel, ReturnsViewModel, ReportsViewModel,
+│                                      PlaceholderViewModel
 └── Views/                             ShellWindow, DashboardView, MedicinesView, SuppliersView,
                                        PurchasesView, InventoryView, NewSaleView,
-                                       SalesHistoryView, TextPromptWindow, PlaceholderView
+                                       SalesHistoryView, ReturnsView, ReportsView,
+                                       TextPromptWindow, PlaceholderView
 ```
 
 - **Composition root.** `App.OnStartup` builds a `HostApplicationBuilder`, calls
@@ -183,9 +208,12 @@ inside the unit of work and the code returns without committing, the whole trans
 batch inserts or quantity decrements — rolls back. The catalog converts it into a message the operator
 can act on ("reload the purchase", or "check the basket against current stock"), never a stack trace.
 A write path that mutates a balance without such a token is a bug: an unconditional
-`UPDATE … WHERE [Id] = @id` silently overwrites newer state. A row that is only ever inserted — `Sales`,
-`SaleLines`, `Payments` — needs none, and gets none; Milestone 4 must add one to `Sales` before it
-writes the first status change.
+`UPDATE … WHERE [Id] = @id` silently overwrites newer state. A row that is only ever inserted — `Payments`
+— needs none, and gets none. Milestone 4 added tokens to `Sales`, `SaleLines` and
+`SaleLineBatchAllocations`, because it is the first code that updates a row after it has been written: the
+returned quantities, the invoice status, and the cancellation audit fields. Two operators refunding the
+same unit therefore cannot both commit, and the loser is told the shelf moved rather than refunding twice
+(ADR 0008).
 
 **Transactions.** A sale, its lines, payments, allocations and stock movements commit together or not
 at all. The checkout writes in one order inside one transaction — price the basket, stop if blocked,
@@ -193,6 +221,14 @@ record the payments, take the invoice number, build the sale, decrease the batch
 movement per batch, save, commit — and reduces stock last, so nothing can leave the shelf behind an
 invoice that was never written. The rule for every future write path is: do not reduce stock before the
 sale is safely committed. See [ADR 0007](decisions/0007-point-of-sale-pricing-and-settlement.md).
+
+A return follows the same shape in the other direction: load the invoice with its lines and allocations,
+plan the whole return against them, take the return number from the same counter inside the same
+transaction, write the return document with its lines, credit the returned quantities and money onto the
+lines and allocations, put stock back only for the lines that say `Restock`, write one movement per
+restocked batch, and mark the invoice returned if nothing is left. The quantities and the money move in
+one commit, so an invoice can never say a unit came back without the ledger and the refund agreeing. See
+[ADR 0008](decisions/0008-sales-returns-and-stock-disposition.md).
 
 **Context lifetime.** A desktop application has no request boundary, so a scoped `DbContext` would be
 shared by the whole process and two overlapping `await`s would collide on it. Infrastructure therefore
@@ -223,17 +259,18 @@ that warning is expected. It is precisely the reason the unit of work is retried
 resumed: after a failed attempt the application, not EF Core, is responsible for rolling back, and
 disposing the transaction does it.
 
-**Loading an invoice.** A sale aggregate carries two collections — lines (with their batch allocations)
-and payments — so it is loaded with `AsSplitQuery()`: one round trip per collection instead of one
-round trip returning lines × payments rows for every invoice in a search result.
+**Loading an invoice.** A sale aggregate carries three collections — lines (with their batch
+allocations), payments and returns (with their lines) — so it is loaded with `AsSplitQuery()`: one round
+trip per collection instead of one round trip returning lines × payments × returns rows for every invoice
+in a search result.
 
 ## 5. Testing
 
 | Level | Project | Approach |
 |---|---|---|
-| Unit | `MediStock.Domain.Tests` | Pure rules: money, guards, catalogue validation, expiry policy, FEFO ordering, batch balances, movement invariants, purchase lifecycle, sale-line pricing and settlement. No database. |
-| Unit | `MediStock.Application.Tests` | DTO/draft normalisation and `OperationResult` semantics. |
-| Integration | `MediStock.IntegrationTests` | Real SQL Server: migrations, every named check constraint/index, catalogue CRUD and search, the receiving workflow end to end, and the counter — allocation, pricing, transactional checkout, racing tills and invoice numbering. |
+| Unit | `MediStock.Domain.Tests` | Pure rules: money, guards, catalogue validation, expiry policy, FEFO ordering, batch balances, movement invariants, purchase lifecycle, sale-line pricing and settlement, and return arithmetic. No database. |
+| Unit | `MediStock.Application.Tests` | DTO/draft normalisation, report request normalisation and `OperationResult` semantics. |
+| Integration | `MediStock.IntegrationTests` | Real SQL Server: migrations, every named check constraint/index, catalogue CRUD and search, the receiving workflow end to end, the counter — allocation, pricing, transactional checkout, racing tills and invoice numbering — returns against a real invoice, including two tills refunding the same unit, and reporting: every one of the ten definitions is run and checked to be a drawable, self-describing table, with the money reports reconciled against the transactions they summarise. |
 
 `TestDatabaseFixture` creates `MediStock_Test` (override with `MEDISTOCK_TEST_CONNECTION`), applies
 migrations, exposes a scope per test, and drops the database on teardown. It never touches a
@@ -250,6 +287,12 @@ development or production database. Integration tests share one fixture through 
   per line. Inclusive pricing, percentage or basket-level discounts, per-allocation pricing, HSN codes
   and statutory rounding are unmodelled until a pharmacist and a tax professional confirm the real
   rules — see [ADR 0007](decisions/0007-point-of-sale-pricing-and-settlement.md).
-- Returns, cancellations, expiry write-offs and supplier returns arrive in Milestone 4. A completed
-  invoice currently has no path back: the money and the stock stay where they are.
-- Report export is a text receipt per invoice; CSV and PDF reports are Milestone 4 work.
+- Returns exist, cancellations and returns are auditable, and reports cover sales, purchasing, stock,
+  expiry and valuation. Still unmodelled: manual stock adjustments and expiry write-offs (the movement
+  types and the reason requirement exist, the screen does not — Milestone 4b in the roadmap), supplier
+  returns, exchanges, credit-note printing, and any settlement model to reconcile a refund against a
+  till or a card batch. See [ADR 0008](decisions/0008-sales-returns-and-stock-disposition.md).
+- A return is recorded in one currency with one refund method, and the refund is not posted to a cash
+  drawer: the application says what should have been given back, it does not control a till.
+- Report export is CSV. PDF and Excel exports wait until the report definitions and their totals have
+  been reviewed by the pharmacy that will read them.

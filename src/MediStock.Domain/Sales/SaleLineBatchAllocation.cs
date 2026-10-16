@@ -37,6 +37,23 @@ public class SaleLineBatchAllocation
     /// <summary>Quantity taken from this batch. Always positive: a sale only ever removes stock.</summary>
     public decimal Quantity { get; private set; }
 
+    /// <summary>How much of <see cref="Quantity"/> has been returned from this batch.</summary>
+    public decimal ReturnedQuantity { get; private set; }
+
+    /// <summary>How much of this batch a customer could still bring back.</summary>
+    public decimal ReturnableQuantity => Quantity - ReturnedQuantity;
+
+    internal void RegisterReturn(decimal quantity)
+    {
+        if (quantity > ReturnableQuantity)
+        {
+            throw new DomainValidationException(
+                $"Batch '{BatchNumber}' accounted for {Quantity:0.###} and {ReturnedQuantity:0.###} of that has come back, so at most {ReturnableQuantity:0.###} can be returned from it.");
+        }
+
+        ReturnedQuantity += quantity;
+    }
+
     internal static SaleLineBatchAllocation From(BatchAllocation allocation)
     {
         ArgumentNullException.ThrowIfNull(allocation);

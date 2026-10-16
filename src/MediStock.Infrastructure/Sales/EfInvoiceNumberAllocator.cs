@@ -52,17 +52,19 @@ internal sealed class EfInvoiceNumberAllocator
     }
 
     /// <summary>
-    /// Consumes and formats the next invoice number for the given business date. Callers must already be
-    /// inside an open transaction: that is what makes the number theirs alone until it commits.
+    /// Consumes and formats the next number of the given series for the given business date. Callers
+    /// must already be inside an open transaction: that is what makes the number theirs alone until it
+    /// commits.
     /// </summary>
     public async Task<string> AllocateAsync(
         MediStockDbContext db,
         DateOnly businessDate,
-        CancellationToken cancellationToken)
+        string prefix = InvoiceSequence.SalesPrefix,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(db);
 
-        var key = InvoiceSequence.KeyFor(businessDate);
+        var key = InvoiceSequence.KeyFor(businessDate, prefix);
 
         // The transaction normally has the connection open already; opening it is idempotent and keeps
         // this method honest if it is ever the first to touch the database.
@@ -81,21 +83,22 @@ internal sealed class EfInvoiceNumberAllocator
             return InvoiceSequence.Format(key, Convert.ToInt64(scalar, CultureInfo.InvariantCulture));
         }
 
-        throw new InvalidOperationException($"Allocating the invoice number for {key} returned no value.");
+        throw new InvalidOperationException($"Allocating the number for {key} returned no value.");
     }
 
     /// <summary>
-    /// The number the next sale on that date would receive, without consuming it. Read-only, and
-    /// therefore advisory only: another till may take it first.
+    /// The number of the given series the next document on that date would receive, without consuming
+    /// it. Read-only, and therefore advisory only: another till may take it first.
     /// </summary>
     public async Task<string> PreviewAsync(
         MediStockDbContext db,
         DateOnly businessDate,
-        CancellationToken cancellationToken)
+        string prefix = InvoiceSequence.SalesPrefix,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(db);
 
-        var key = InvoiceSequence.KeyFor(businessDate);
+        var key = InvoiceSequence.KeyFor(businessDate, prefix);
 
         var current = await db.InvoiceSequences
             .AsNoTracking()

@@ -261,6 +261,13 @@
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
     </Style>
 
+    <!-- Applied by the report viewer to the columns a report marks as numeric: figures are read by their
+         right edge, so a column of amounts lines up and a stray digit is easy to spot. -->
+    <Style x:Key="NumericCell" TargetType="DataGridCell">
+        <Setter Property="HorizontalContentAlignment" Value="Right" />
+        <Setter Property="Padding" Value="0,0,6,0" />
+    </Style>
+
     <!-- Navigation rail -->
     <Style x:Key="NavigationItemStyle" TargetType="ListBoxItem">
         <Setter Property="Padding" Value="14,9" />

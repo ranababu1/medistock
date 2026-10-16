@@ -105,6 +105,8 @@ public partial class App : System.Windows.Application
         builder.Services.AddTransient<InventoryViewModel>();
         builder.Services.AddTransient<NewSaleViewModel>();
         builder.Services.AddTransient<SalesHistoryViewModel>();
+        builder.Services.AddTransient<ReturnsViewModel>();
+        builder.Services.AddTransient<ReportsViewModel>();
 
         return builder.Build();
     }

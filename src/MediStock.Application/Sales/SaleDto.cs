@@ -12,6 +12,12 @@ public sealed record SaleAllocationDto
     public DateOnly ExpiryDate { get; init; }
 
     public decimal Quantity { get; init; }
+
+    /// <summary>How much of <see cref="Quantity"/> has been returned from this batch.</summary>
+    public decimal ReturnedQuantity { get; init; }
+
+    /// <summary>How much of this batch a customer could still bring back.</summary>
+    public decimal ReturnableQuantity => Quantity - ReturnedQuantity;
 }
 
 /// <summary>A priced invoice line, with the batches it will consume.</summary>
@@ -42,6 +48,18 @@ public sealed record SaleLineDto
     public decimal LineTotal { get; init; }
 
     public decimal LineCost { get; init; }
+
+    /// <summary>How much of <see cref="Quantity"/> has been returned by customers.</summary>
+    public decimal ReturnedQuantity { get; init; }
+
+    /// <summary>Money refunded against this line, including the tax charged on it.</summary>
+    public decimal ReturnedAmount { get; init; }
+
+    /// <summary>How much of this line a customer could still bring back.</summary>
+    public decimal ReturnableQuantity => Quantity - ReturnedQuantity;
+
+    /// <summary>True once the whole line has been returned.</summary>
+    public bool IsFullyReturned => ReturnedQuantity == Quantity;
 
     public IReadOnlyList<SaleAllocationDto> Allocations { get; init; } = [];
 }
@@ -88,11 +106,30 @@ public sealed record SaleDto
 
     public DateTimeOffset CreatedAtUtc { get; init; }
 
+    public DateTimeOffset? CancelledAtUtc { get; init; }
+
+    public string? CancelledBy { get; init; }
+
+    public string? CancellationReason { get; init; }
+
+    /// <summary>Money refunded across all returns against this invoice.</summary>
+    public decimal ReturnedTotal { get; init; }
+
+    public IReadOnlyList<SalesReturnSummaryDto> Returns { get; init; } = [];
+
     public IReadOnlyList<SaleLineDto> Lines { get; init; } = [];
 
     public IReadOnlyList<PaymentDto> Payments { get; init; } = [];
 
     public decimal Margin => Total - TaxTotal - CostTotal;
+
+    public decimal UnitsReturned => Lines.Sum(line => line.ReturnedQuantity);
+
+    /// <summary>True once every line has been returned in full.</summary>
+    public bool IsFullyReturned => Lines.Count > 0 && Lines.All(line => line.IsFullyReturned);
+
+    /// <summary>True when the invoice may be cancelled: nothing left out with the customer, and not already cancelled.</summary>
+    public bool CanCancel => Status == SaleStatus.Completed && IsFullyReturned;
 }
 
 /// <summary>

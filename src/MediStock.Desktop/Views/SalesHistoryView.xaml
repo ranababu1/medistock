@@ -54,7 +54,7 @@
                     Margin="0,0,0,10"
                     Padding="14,10"
                     Background="{StaticResource SuccessSoftBrush}"
-                    Visibility="{Binding StatusMessage, Converter={StaticResource NotNull}}">
+                    Visibility="{Binding StatusMessage, Converter={StaticResource NotNullVisible}}">
                 <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource SuccessBrush}" TextWrapping="Wrap" />
             </Border>
         </StackPanel>

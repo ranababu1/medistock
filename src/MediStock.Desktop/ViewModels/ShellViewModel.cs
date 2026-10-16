@@ -50,8 +50,8 @@ public sealed partial class ShellViewModel : ViewModelBase
             new(NavigationRoutes.Inventory, "BN", "Inventory & Batches", "Batch stock and expiry"),
             new(NavigationRoutes.Purchases, "PU", "Purchases", "Supplier invoices and receiving"),
             new(NavigationRoutes.Suppliers, "SU", "Suppliers", "Contacts and purchase history"),
-            new(NavigationRoutes.Returns, "RT", "Returns & Adjustments", "Sale returns and write-offs", isPlanned: true),
-            new(NavigationRoutes.Reports, "RE", "Reports", "Sales, stock, and valuation", isPlanned: true),
+            new(NavigationRoutes.Returns, "RT", "Returns & Adjustments", "Sale returns and refunds"),
+            new(NavigationRoutes.Reports, "RE", "Reports", "Sales, stock, and valuation"),
             new(NavigationRoutes.Settings, "SE", "Users & Settings", "Accounts, backup, diagnostics", isPlanned: true),
         };
 
@@ -185,13 +185,13 @@ public sealed partial class ShellViewModel : ViewModelBase
         NavigationRoutes.Inventory => _services.GetRequiredService<InventoryViewModel>(),
         NavigationRoutes.NewSale => _services.GetRequiredService<NewSaleViewModel>(),
         NavigationRoutes.SalesHistory => _services.GetRequiredService<SalesHistoryViewModel>(),
+        NavigationRoutes.Returns => _services.GetRequiredService<ReturnsViewModel>(),
+        NavigationRoutes.Reports => _services.GetRequiredService<ReportsViewModel>(),
         _ => new PlaceholderViewModel(item, DescribeMilestone(item.RouteKey), _navigation),
     };
 
     private static string DescribeMilestone(string routeKey) => routeKey switch
     {
-        NavigationRoutes.Returns => "Milestone 4 — Returns, expiry, and reports",
-        NavigationRoutes.Reports => "Milestone 4 — Returns, expiry, and reports",
         NavigationRoutes.Settings => "Milestone 5 — Users, security, and operations",
         _ => "A later milestone",
     };

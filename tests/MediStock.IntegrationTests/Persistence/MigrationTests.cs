@@ -89,6 +89,8 @@ public class MigrationTests
                 "SaleLineBatchAllocations",
                 "SaleLines",
                 "Sales",
+                "SalesReturnLines",
+                "SalesReturns",
                 "StockMovements",
                 "Suppliers",
                 "__EFMigrationsHistory",

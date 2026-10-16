@@ -73,12 +73,45 @@ public class SaleLine
 
     public decimal LineTotal { get; private set; }
 
+    /// <summary>How much of <see cref="Quantity"/> has been returned by customer returns.</summary>
+    public decimal ReturnedQuantity { get; private set; }
+
+    /// <summary>Money refunded against this line so far, including the tax charged on it.</summary>
+    public decimal ReturnedAmount { get; private set; }
+
+    /// <summary>
+    /// Tax included in <see cref="ReturnedAmount"/>. Kept separately so revenue reports can net tax
+    /// off by the same quantities that were refunded instead of guessing a rate.
+    /// </summary>
+    public decimal ReturnedTax { get; private set; }
+
+    /// <summary>
+    /// Cost of the stock that came back, whether or not it was restocked. A restocked quantity leaves
+    /// the day's cost of goods sold; a quarantined or destroyed one stays consumed.
+    /// </summary>
+    public decimal ReturnedCost { get; private set; }
+
     /// <summary>Which batches the quantity left. Their quantities sum to <see cref="Quantity"/>.</summary>
     public ICollection<SaleLineBatchAllocation> Allocations { get; private set; }
         = new List<SaleLineBatchAllocation>();
 
     /// <summary>Revenue less the cost of the goods sold, both taken from the stored line values.</summary>
     public decimal Margin => Money.Round(LineTotal - TaxAmount - LineCost);
+
+    /// <summary>How much of this line a customer could still bring back.</summary>
+    public decimal ReturnableQuantity => Quantity - ReturnedQuantity;
+
+    /// <summary>What is left to refund if the whole remainder comes back.</summary>
+    public decimal ReturnableAmount => Money.Round(LineTotal - ReturnedAmount);
+
+    /// <summary>Tax still held in what has not been returned.</summary>
+    public decimal ReturnableTax => Money.Round(TaxAmount - ReturnedTax);
+
+    /// <summary>Cost of the stock still out with the customer.</summary>
+    public decimal ReturnableCost => Money.Round(LineCost - ReturnedCost);
+
+    /// <summary>True once the whole line has been returned.</summary>
+    public bool IsFullyReturned => ReturnedQuantity == Quantity;
 
     /// <summary>Cost of the stock this line consumed.</summary>
     public decimal LineCost => Money.Round(Quantity * UnitCost);
@@ -169,5 +202,60 @@ public class SaleLine
         }
 
         return line;
+    }
+
+    /// <summary>
+    /// Credits a returned quantity back against the batch it came out of and adds its refund to the
+    /// line. Called by <see cref="SalesReturn.Record"/>, which has already checked the quantity against
+    /// both the line and the batch and split the line's money into the refund, tax and cost shares.
+    /// </summary>
+    internal void RegisterReturn(
+        SaleLineBatchAllocation allocation,
+        decimal quantity,
+        decimal refundAmount,
+        decimal taxAmount,
+        decimal costAmount)
+    {
+        ArgumentNullException.ThrowIfNull(allocation);
+
+        if (allocation.SaleLineId != Id && allocation.SaleLineId != 0)
+        {
+            throw new DomainValidationException(
+                $"Batch '{allocation.BatchNumber}' was not allocated to line {LineNumber} ('{MedicineName}').");
+        }
+
+        if (quantity > ReturnableQuantity)
+        {
+            throw new DomainValidationException(
+                $"Line {LineNumber} ('{MedicineName}') sold {Quantity:0.###} and {ReturnedQuantity:0.###} of that has come back, so at most {ReturnableQuantity:0.###} can be returned to it.");
+        }
+
+        var refund = Money.Round(Guard.NonNegative(refundAmount, "Refund amount"));
+        if (ReturnedAmount + refund > LineTotal)
+        {
+            throw new DomainValidationException(
+                $"Refunded {ReturnedAmount:0.00} of the {LineTotal:0.00} charged on line {LineNumber} ('{MedicineName}'); a further {refund:0.00} would refund more than was charged.");
+        }
+
+        var tax = Money.Round(Guard.NonNegative(taxAmount, "Refunded tax"));
+        if (ReturnedTax + tax > TaxAmount)
+        {
+            throw new DomainValidationException(
+                $"Line {LineNumber} ('{MedicineName}') charged {TaxAmount:0.00} of tax and {ReturnedTax:0.00} of it has been refunded; a further {tax:0.00} would refund more tax than was charged.");
+        }
+
+        var cost = Money.Round(Guard.NonNegative(costAmount, "Returned cost"));
+        if (ReturnedCost + cost > LineCost)
+        {
+            throw new DomainValidationException(
+                $"Line {LineNumber} ('{MedicineName}') consumed {LineCost:0.00} of stock and {ReturnedCost:0.00} of that has come back; a further {cost:0.00} would return more cost than was consumed.");
+        }
+
+        allocation.RegisterReturn(quantity);
+
+        ReturnedQuantity += quantity;
+        ReturnedAmount = Money.Round(ReturnedAmount + refund);
+        ReturnedTax = Money.Round(ReturnedTax + tax);
+        ReturnedCost = Money.Round(ReturnedCost + cost);
     }
 }

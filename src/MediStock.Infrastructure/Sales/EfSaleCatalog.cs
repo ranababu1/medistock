@@ -4,7 +4,6 @@ using MediStock.Domain.Common;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Sales;
 using MediStock.Infrastructure.Persistence;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -37,9 +36,6 @@ namespace MediStock.Infrastructure.Sales;
 /// </remarks>
 internal sealed class EfSaleCatalog : ISaleCatalog
 {
-    /// <summary>How many times a checkout may be repeated when another till changes the stock it read.</summary>
-    private const int ConcurrencyAttempts = 8;
-
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
     private readonly EfInvoiceNumberAllocator _invoiceNumbers;
@@ -73,7 +69,7 @@ internal sealed class EfSaleCatalog : ISaleCatalog
             IsCheckoutReady = basket.Blockers.Count == 0,
             Blockers = basket.Blockers,
             InvoicePreview = await _invoiceNumbers
-                .PreviewAsync(db, _clock.BusinessDate, cancellationToken)
+                .PreviewAsync(db, _clock.BusinessDate, InvoiceSequence.SalesPrefix, cancellationToken)
                 .ConfigureAwait(false),
             Lines = [.. basket.Lines.Select(Project)],
             SubTotal = totals.SubTotal,
@@ -122,7 +118,7 @@ internal sealed class EfSaleCatalog : ISaleCatalog
 
                 // Issued inside the transaction: a sale that fails to commit gives the number back.
                 var invoiceNumber = await _invoiceNumbers
-                    .AllocateAsync(db, businessDate, cancellationToken)
+                    .AllocateAsync(db, businessDate, InvoiceSequence.SalesPrefix, cancellationToken)
                     .ConfigureAwait(false);
 
                 var sale = Sale.Complete(
@@ -295,7 +291,7 @@ internal sealed class EfSaleCatalog : ISaleCatalog
         await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
         return await _invoiceNumbers
-            .PreviewAsync(db, _clock.BusinessDate, cancellationToken)
+            .PreviewAsync(db, _clock.BusinessDate, InvoiceSequence.SalesPrefix, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -471,60 +467,33 @@ internal sealed class EfSaleCatalog : ISaleCatalog
     /// the basket is re-read and re-priced from scratch, and the invoice number that attempt had already
     /// taken is simply left behind as a gap.
     /// </summary>
-    private async Task<OperationResult<int>> ExecuteUnitOfWorkAsync(
+    private Task<OperationResult<int>> ExecuteUnitOfWorkAsync(
         MediStockDbContext db,
         Func<Task<OperationResult<int>>> unitOfWork,
         CancellationToken cancellationToken)
-    {
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                return await db.Database
-                    .CreateExecutionStrategy()
-                    .ExecuteAsync(unitOfWork)
-                    .ConfigureAwait(false);
-            }
-            catch (DbUpdateConcurrencyException ex) when (attempt < ConcurrencyAttempts)
-            {
-                _logger.LogInformation(
-                    ex,
-                    "Attempt {Attempt} of {Attempts} was overtaken by another till and will be repeated.",
-                    attempt,
-                    ConcurrencyAttempts);
-
-                // A short, growing pause lets contending tills drift apart rather than collide again in
-                // lockstep on the very next read.
-                await Task.Delay(
-                    TimeSpan.FromMilliseconds(Random.Shared.Next(5, 20) * attempt),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (DbUpdateConcurrencyException ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Another checkout changed the stock this basket was priced against {Attempts} times. The sale "
-                    + "was not completed.",
-                    ConcurrencyAttempts);
-
-                return OperationResult<int>.Fail(
-                    "Another till sold the same stock while you were ringing this basket up, so the sale was not "
-                    + "completed and nothing was charged. Check the basket against current stock and try again.");
-            }
-        }
-    }
+        => UnitOfWorkRetry.ExecuteAsync(
+            db,
+            unitOfWork,
+            "Another till sold the same stock while you were ringing this basket up, so the sale was not "
+            + "completed and nothing was charged. Check the basket against current stock and try again.",
+            _logger,
+            cancellationToken);
 
     private static string Reference(int saleId) => $"SALE-{saleId}";
 
     /// <summary>Loads everything an invoice and its receipt need.</summary>
     private static IQueryable<Sale> Query(MediStockDbContext db) => Load(db.Sales);
 
-    // Split because an invoice carries two collections: one query per collection avoids returning
-    // lines x payments rows, which is wasteful for a single invoice and worse for a list of them.
+    // Split because an invoice carries three collections: one query per collection avoids returning
+    // lines x payments x returns rows, which is wasteful for a single invoice and worse for a list of
+    // them. Returns are loaded because the screen must show what is left to bring back without a
+    // second round trip per invoice.
     private static IQueryable<Sale> Load(IQueryable<Sale> source) => source
         .Include(sale => sale.Lines)
         .ThenInclude(line => line.Allocations)
         .Include(sale => sale.Payments)
+        .Include(sale => sale.Returns)
+        .ThenInclude(salesReturn => salesReturn.Lines)
         .AsSplitQuery();
 
     private static SaleDto Project(Sale sale) => new()
@@ -545,6 +514,10 @@ internal sealed class EfSaleCatalog : ISaleCatalog
         Total = sale.Total,
         CostTotal = sale.CostTotal,
         CreatedAtUtc = sale.CreatedAtUtc,
+        CancelledAtUtc = sale.CancelledAtUtc,
+        CancelledBy = sale.CancelledBy,
+        CancellationReason = sale.CancellationReason,
+        ReturnedTotal = sale.RefundedTotal,
         Lines =
         [
             .. sale.Lines
@@ -557,6 +530,13 @@ internal sealed class EfSaleCatalog : ISaleCatalog
                 .OrderBy(payment => payment.Id)
                 .Select(payment => new PaymentDto(
                     payment.Method, payment.Amount, payment.Reference, payment.PaidAtUtc)),
+        ],
+        Returns =
+        [
+            .. sale.Returns
+                .OrderBy(salesReturn => salesReturn.BusinessDate)
+                .ThenBy(salesReturn => salesReturn.Id)
+                .Select(SalesReturnProjection.Summarise),
         ],
     };
 
@@ -575,6 +555,8 @@ internal sealed class EfSaleCatalog : ISaleCatalog
         TaxAmount = line.TaxAmount,
         LineTotal = line.LineTotal,
         LineCost = line.LineCost,
+        ReturnedQuantity = line.ReturnedQuantity,
+        ReturnedAmount = line.ReturnedAmount,
         Allocations =
         [
             .. line.Allocations
@@ -586,6 +568,7 @@ internal sealed class EfSaleCatalog : ISaleCatalog
                     BatchNumber = allocation.BatchNumber,
                     ExpiryDate = allocation.ExpiryDate,
                     Quantity = allocation.Quantity,
+                    ReturnedQuantity = allocation.ReturnedQuantity,
                 }),
         ],
     };
@@ -602,30 +585,25 @@ internal sealed class EfSaleCatalog : ISaleCatalog
     {
         message = string.Empty;
 
-        if (exception.InnerException is not SqlException sql)
+        if (!SqlFailure.TryClassify(exception, out var kind, out var sql))
         {
             return false;
         }
 
-        switch (sql.Number)
+        if (kind == SqlFailureKind.Duplicate)
         {
-            case 2601:
-            case 2627:
-                message = sql.Message.Contains("UX_Sales_InvoiceNumber", StringComparison.OrdinalIgnoreCase)
-                    ? "That invoice number has already been used. The sale was not saved; try again."
-                    : "A record with these details already exists.";
-                return true;
+            message = SqlFailure.NamesAtLeastOne(sql, "UX_Sales_InvoiceNumber")
+                ? "That invoice number has already been used. The sale was not saved; try again."
+                : "A record with these details already exists.";
 
-            case 547:
-                message = sql.Message.Contains("CK_SaleLines", StringComparison.OrdinalIgnoreCase)
-                    || sql.Message.Contains("CK_Sales", StringComparison.OrdinalIgnoreCase)
-                        ? "The invoice failed a database rule on its amounts, so it was not saved."
-                        : "The sale was rejected by a database rule. Check the basket and try again.";
-                return true;
-
-            default:
-                return false;
+            return true;
         }
+
+        message = SqlFailure.NamesAtLeastOne(sql, "CK_SaleLines", "CK_Sales")
+            ? "The invoice failed a database rule on its amounts, so it was not saved."
+            : "The sale was rejected by a database rule. Check the basket and try again.";
+
+        return true;
     }
 
     /// <summary>A priced basket, the reasons it cannot be sold, and the stock it would consume.</summary>

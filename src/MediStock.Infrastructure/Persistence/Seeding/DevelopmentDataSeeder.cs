@@ -20,19 +20,25 @@ public sealed class DevelopmentDataSeeder
 {
     private const string Operator = "Development seed";
 
+    /// <summary>The sample customer whose order is partly taken back, so the return has a name on it.</summary>
+    private const string ReturningCustomer = "Reshma Iyer";
+
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly ISaleCatalog _sales;
+    private readonly ISaleReturnCatalog _returns;
     private readonly IClock _clock;
     private readonly ILogger<DevelopmentDataSeeder> _logger;
 
     public DevelopmentDataSeeder(
         IDbContextFactory<MediStockDbContext> factory,
         ISaleCatalog sales,
+        ISaleReturnCatalog returns,
         IClock clock,
         ILogger<DevelopmentDataSeeder> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _sales = sales ?? throw new ArgumentNullException(nameof(sales));
+        _returns = returns ?? throw new ArgumentNullException(nameof(returns));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -175,21 +181,83 @@ public sealed class DevelopmentDataSeeder
         // its own transaction, and it can only sell stock that is already on the shelf.
         var invoices = await SeedSalesAsync(medicines, cancellationToken).ConfigureAwait(false);
 
+        // A return is recorded after the invoice it credits, for the same reason.
+        var returns = await SeedReturnAsync(invoices, cancellationToken).ConfigureAwait(false);
+
         var movementCount = await db.StockMovements
             .CountAsync(cancellationToken)
             .ConfigureAwait(false);
 
         _logger.LogInformation(
             "Seeded {Medicines} sample medicines, {Suppliers} sample suppliers, {Purchases} sample purchases, " +
-            "{Batches} batches, {Invoices} sample invoices, and {Movements} stock movements.",
+            "{Batches} batches, {Invoices} sample invoices, {Returns} sample return(s), and {Movements} " +
+            "stock movements.",
             medicines.Count,
             suppliers.Count,
             deliveries.Count + 2,
             receivedBatchCount + reversalBatches.Count,
             invoices.Count,
+            returns.Count,
             movementCount);
 
         return movementCount;
+    }
+
+    /// <summary>
+    /// Takes part of one sample invoice back through the real returns workflow, so the sample data shows
+    /// what a counter return does to the shelf, the till and the reports rather than only describing it.
+    /// </summary>
+    /// <remarks>
+    /// The invoice was settled on a card, but the counter refunded in cash: a return records the method the
+    /// money actually left by, which is why the day's report can show refunds under a method that took
+    /// nothing. One line goes back on the shelf and one does not, because restocking is a deliberate
+    /// decision and never something a return does by itself.
+    /// </remarks>
+    private async Task<IReadOnlyList<string>> SeedReturnAsync(
+        IReadOnlyList<SaleDto> invoices,
+        CancellationToken cancellationToken)
+    {
+        var invoice = invoices.Single(candidate => candidate.CustomerName == ReturningCustomer);
+        var restocked = invoice.Lines[0];
+        var quarantined = invoice.Lines[1];
+
+        var draft = new SalesReturnDraft
+        {
+            SaleId = invoice.Id,
+            ReturnedBy = Operator,
+            Reason = "Customer brought back part of the order the same day",
+            Notes = "Sample customer return written by the development seeder.",
+            RefundMethod = PaymentMethod.Cash,
+            Lines =
+            [
+                new SalesReturnLineDraft
+                {
+                    LineNumber = restocked.LineNumber,
+                    MedicineBatchId = restocked.Allocations[0].MedicineBatchId,
+                    Quantity = 10m,
+                    Disposition = ReturnDisposition.Restock,
+                    Notes = "Seal intact, so it went back on the shelf.",
+                },
+                new SalesReturnLineDraft
+                {
+                    LineNumber = quarantined.LineNumber,
+                    MedicineBatchId = quarantined.Allocations[0].MedicineBatchId,
+                    Quantity = 5m,
+                    Disposition = ReturnDisposition.Quarantine,
+                    Notes = "Held aside for the pharmacist to inspect.",
+                },
+            ],
+        };
+
+        var recorded = await _returns.RecordAsync(draft, cancellationToken).ConfigureAwait(false);
+
+        if (!recorded.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"A sample return could not be recorded: {recorded.Message}");
+        }
+
+        return [recorded.Value!.ReturnNumber];
     }
 
     /// <summary>
@@ -199,13 +267,14 @@ public sealed class DevelopmentDataSeeder
     /// </summary>
     /// <remarks>
     /// Each basket is priced first and then settled for exactly the quoted total, which is the order
-    /// the till works in and the only order that can settle an invoice to the paisa.
+    /// the till works in and the only order that can settle an invoice to the paisa. The completed
+    /// invoices come back with their lines and batch allocations, which is what a later return needs.
     /// </remarks>
-    private async Task<IReadOnlyList<string>> SeedSalesAsync(
+    private async Task<IReadOnlyList<SaleDto>> SeedSalesAsync(
         IReadOnlyList<Medicine> medicines,
         CancellationToken cancellationToken)
     {
-        var invoices = new List<string>();
+        var invoices = new List<SaleDto>();
 
         foreach (var basket in SampleBaskets())
         {
@@ -268,7 +337,7 @@ public sealed class DevelopmentDataSeeder
                     $"A sample sale could not be completed: {checkout.Message}");
             }
 
-            invoices.Add($"#{checkout.Value}");
+            invoices.Add(checkout.Value!);
         }
 
         return invoices;
@@ -297,7 +366,7 @@ public sealed class DevelopmentDataSeeder
             new(0, 50m),
             new(2, 4m, 5.00m),
         ]),
-        new("Reshma Iyer", "+91 99000 41122", PaymentMethod.Card, "CARD-8841", false,
+        new(ReturningCustomer, "+91 99000 41122", PaymentMethod.Card, "CARD-8841", false,
         [
             new(4, 30m),
             new(7, 20m),

@@ -18,7 +18,8 @@ convenience second, advanced features third**.
 | **1** | Database schema, medicine catalogue, dashboard read models | ✅ Complete |
 | **2** | Suppliers, purchasing and receiving, batch creation, stock movements UI | ✅ Complete |
 | **3** | Point of sale: cart, FEFO allocation, pricing and tax, transactional checkout, invoices and receipts | ✅ Complete |
-| 4 | Returns, expiry and reports | ⏳ Not started |
+| **4** | Sales returns and dispositions, cancellations, low-stock and expiry views, ten operational reports with CSV export | ✅ Complete |
+| 4b | Manual stock adjustments, expiry write-offs, supplier returns, quarantined-stock visibility | ⏳ Planned |
 | 5 | Users, permissions, audit trail, backup/restore | ⏳ Not started |
 | 6 | Packaging and release | ⏳ Not started |
 
@@ -42,9 +43,19 @@ What works today:
   sale outright when stock is short or expired. Allocating, pricing, numbering the invoice, reducing
   batches, writing the movements and taking the money happen in one transaction, so a failed sale
   leaves nothing behind. Sales history searches invoices by number, customer or medicine, reprints a
-  receipt, and shows the day's takings split by payment method.
+  receipt, and shows the day's takings split by payment method. An uncompleted invoice can be cancelled,
+  which reverses its stock in the same transaction and keeps the invoice number on record.
+- **Returns & adjustments** takes back part or all of an invoice: it looks up the original sale by number,
+  caps every entry at the quantity still returnable, shows what the return would refund before anything is
+  written, and requires a reason plus a per-line disposition (restock, quarantine or destroy). Returned
+  stock only goes back on the shelf when the operator says so *and* the batch is still within its expiry
+  policy; quarantined and destroyed lines write no movement at all. Refunds and returned cost are apportioned
+  across the original lines to the paisa, and restocking returns stock to the batch it was sold from.
+- **Reports** renders ten operational reports — daily sales, sales by medicine, sales by payment method,
+  purchase history, stock by batch, low stock, expiring stock, stock movements, inventory valuation and
+  sales returns — as filterable tables, and exports any of them to RFC 4180 CSV with a formula-injection guard.
 
-Returns, cancellations, reporting and CSV/PDF export are **not** implemented yet.
+Expiry write-offs, manual stock adjustments, supplier returns and PDF/Excel export are **not** implemented yet.
 
 ---
 
@@ -98,7 +109,7 @@ The override is checked first and wins over configuration.
 Set-Location C:\Users\Imran\source\repos\MediStock
 
 dotnet build MediStock.slnx                       # compile everything
-dotnet test  MediStock.slnx                       # run all 230 tests
+dotnet test  MediStock.slnx                       # run all 286 tests
 dotnet run   --project src\MediStock.Desktop      # launch the application
 ```
 
@@ -115,9 +126,9 @@ dotnet publish src\MediStock.Desktop -c Release -r win-x64 --self-contained true
 
 | Project | What it covers | Tests |
 |---|---|---|
-| `MediStock.Domain.Tests` | Money rounding, guards, medicine rules, expiry policy, FEFO ordering, batch balances, movements, purchase lifecycle, sale pricing and settlement | 148 |
+| `MediStock.Domain.Tests` | Money rounding and proportional shares, guards, medicine rules, expiry policy, FEFO ordering, batch balances and restock eligibility, movements, purchase lifecycle, sale pricing and settlement, returns and refund estimation | 191 |
 | `MediStock.Application.Tests` | DTO/draft normalisation, `OperationResult` semantics | 18 |
-| `MediStock.IntegrationTests` | Migrations, schema constraints, catalogue, supplier, receiving and checkout workflows, including two tills racing for the same last units and six racing for invoice numbers, against real SQL Server | 64 |
+| `MediStock.IntegrationTests` | Migrations, schema constraints, catalogue, supplier, receiving, checkout and return workflows, and every report definition, including two tills racing for the same last units, six racing for invoice numbers and two racing to return the same units, against real SQL Server | 77 |
 
 Integration tests need a reachable SQL Server. They create **`MediStock_Test`** in
 `(localdb)\MSSQLLocalDB`, migrate it, and drop it again on teardown — never production or personal
@@ -145,6 +156,7 @@ Settings under the `MediStock` section:
 | `ApplyMigrationsOnStartup` | `true` | Apply pending EF Core migrations at launch |
 | `SeedDevelopmentData` | `false` (true in Development) | Insert fictional sample data when the catalogue is empty |
 | `ReceiptFolder` | `MediStock\Receipts` | Where exported receipts are written. A relative path is resolved against the user's documents folder |
+| `ReportFolder` | `MediStock\Reports` | Where exported report files are written, resolved the same way |
 
 Application logs are written to `%LOCALAPPDATA%\MediStock\logs\medistock-yyyyMMdd.log`.
 
@@ -164,7 +176,7 @@ Schema changes are applied **only** through versioned migrations — never by ha
 |---|---|
 | `scripts\dev\start-localdb.ps1` | Starts `MSSQLLocalDB` and proves it answers a query. Run this first on a fresh machine. |
 | `scripts\dev\reset-database.ps1` | Drops and rebuilds the development database from migrations alone. Use after a failed startup leaves partial data behind. |
-| `scripts\dev\check-reconciliation.ps1` | Checks that every cached batch balance equals its ledger sum, that each invoice's batch allocations match its sale movements, and that each invoice's lines add up to its stored total. Then prints row counts and the inventory value at cost. |
+| `scripts\dev\check-reconciliation.ps1` | Runs six independent checks: every cached batch balance equals its ledger sum; each invoice's batch allocations match its sale movements; each invoice's lines add up to its stored total; invoice lines add up to what their returns have recorded; each return header matches its own lines; and every restocked return has the stock movement to prove it. Then prints row counts, the inventory value at cost and the takings on record. |
 
 ```powershell
 .\scripts\dev\start-localdb.ps1
@@ -173,18 +185,20 @@ Schema changes are applied **only** through versioned migrations — never by ha
 ```
 
 A healthy seeded development database reports **10 medicines, 4 suppliers, 8 purchases, 13 purchase
-lines, 11 batches, 18 stock movements, 3 invoices, 6 sale lines, 6 allocations and 4 payments**, an
-inventory value at cost of **₹7,363.70**, takings of **₹489.02** on record, and `OK` for all three
-reconciliation checks.
+lines, 11 batches, 19 stock movements, 3 invoices, 6 sale lines, 6 allocations, 4 payments and 1 sales
+return of 2 lines**, an inventory value at cost of **₹7,378.20**, takings of **₹489.02** on record, and
+`OK` for all six reconciliation checks.
 
 ### Development seed data
 
 Development startup inserts fictional data only when the medicine catalogue is empty: 10 medicines,
-4 suppliers, 8 purchases, 11 batches and 18 stock movements. Three of those purchases are then rung up
-as real invoices through the real checkout workflow, which is why the seeded database already has
-sales, payments, batch allocations and the movements they produced. The sample sizes are chosen to
-exercise low-stock, near-expiry and multiple-batch-per-medicine scenarios. Seed data is fictional and
-clearly separated from real pharmacy data; keep it that way.
+4 suppliers, 8 purchases, 11 batches and 19 stock movements in all — 11 receipts, one reversed receipt,
+six sale movements, and one from the sample return. Three of those purchases are then rung up as real
+invoices through the real checkout workflow and one of the invoices is partly returned through the real
+returns workflow and restocked, so the seeded database already has sales, payments, batch allocations
+and the `RET-2026-000001` return, with the movements all of them produced. The sample sizes are chosen
+to exercise low-stock, near-expiry, multiple-batch-per-medicine and part-return scenarios. Seed data is
+fictional and clearly separated from real pharmacy data; keep it that way.
 
 ---
 

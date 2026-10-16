@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Windows;
 using System.Windows.Data;
+using MediStock.Application.Reporting;
 
 namespace MediStock.Desktop.Converters;
 
@@ -28,6 +30,31 @@ public sealed class DateOnlyToDateTimeConverter : IValueConverter
 public sealed class NotNullToBooleanConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value is not null;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// Hides an element whose bound value is null. A banner that carries a message is shown by having one.
+/// </summary>
+public sealed class NotNullToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is null or "" ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// Shows an enum column as words an operator reads. The wording lives in one place, so a grid cell and an
+/// exported report call the same value by the same name.
+/// </summary>
+public sealed class EnumTextConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is Enum word ? ReportText.Describe(word) : string.Empty;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();

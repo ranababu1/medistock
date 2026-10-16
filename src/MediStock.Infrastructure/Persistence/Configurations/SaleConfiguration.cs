@@ -30,15 +30,32 @@ internal sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
             table.HasCheckConstraint(
                 "CK_Sales_Customer_Phone_With_Name",
                 "[CustomerPhone] IS NULL OR [CustomerName] IS NOT NULL");
+
+            // A cancelled invoice always records who cancelled it, when, and why; an uncancelled one
+            // never does. This is what keeps a cancellation auditable rather than a status flag.
+            table.HasCheckConstraint(
+                "CK_Sales_Cancellation_Consistent",
+                """
+                ([Status] <> 3 AND [CancelledAtUtc] IS NULL AND [CancelledBy] IS NULL AND [CancellationReason] IS NULL)
+                OR ([Status] = 3 AND [CancelledAtUtc] IS NOT NULL AND [CancelledBy] IS NOT NULL AND [CancellationReason] IS NOT NULL)
+                """);
         });
 
         builder.HasKey(s => s.Id);
+
+        // The status transition is a conditional write. Cancelling or marking an invoice returned
+        // rewrites the whole row, so without this token two operators working on the same invoice
+        // would each write their own status over a stale read. Mapped as a shadow property because
+        // concurrency is a persistence concern and the aggregate has no reason to know about it.
+        builder.Property<byte[]>(ConcurrencyToken.RowVersion).IsRowVersion();
 
         builder.Property(s => s.InvoiceNumber).HasMaxLength(Sale.InvoiceNumberMaxLength).IsRequired();
         builder.Property(s => s.SoldBy).HasMaxLength(Sale.OperatorMaxLength).IsRequired();
         builder.Property(s => s.CustomerName).HasMaxLength(Sale.CustomerNameMaxLength);
         builder.Property(s => s.CustomerPhone).HasMaxLength(Sale.CustomerPhoneMaxLength);
         builder.Property(s => s.Notes).HasMaxLength(Sale.NotesMaxLength);
+        builder.Property(s => s.CancelledBy).HasMaxLength(Sale.OperatorMaxLength);
+        builder.Property(s => s.CancellationReason).HasMaxLength(Sale.CancellationReasonMaxLength);
 
         foreach (var money in new[]
                  {
@@ -57,6 +74,7 @@ internal sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
         builder.Property(s => s.BusinessDate).HasColumnType("date").IsRequired();
         builder.Property(s => s.SoldAtUtc).HasColumnType("datetimeoffset(3)").IsRequired();
         builder.Property(s => s.CreatedAtUtc).HasColumnType("datetimeoffset(3)").IsRequired();
+        builder.Property(s => s.CancelledAtUtc).HasColumnType("datetimeoffset(3)");
 
         // One invoice number identifies exactly one sale, for ever. The domain issues the number inside
         // the checkout transaction and this is the constraint that makes the promise true even if
@@ -81,5 +99,6 @@ internal sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
 
         builder.Navigation(s => s.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(s => s.Payments).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(s => s.Returns).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

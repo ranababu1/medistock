@@ -75,6 +75,30 @@ public class MedicineBatch
     public bool IsReversibleReceipt =>
         QuantityOnHand == QuantityReceived && Status is not (BatchStatus.Recalled or BatchStatus.WrittenOff);
 
+    /// <summary>
+    /// True while this batch could have returned stock put back on its shelf. Expiry is judged against
+    /// the business date of the return, not today, so a back-dated return is judged as of its own day.
+    /// </summary>
+    public bool CanBeRestocked(DateOnly businessDate) => RestockBlocker(businessDate) is null;
+
+    /// <summary>Why this batch cannot take returned stock back, or <c>null</c> when it can.</summary>
+    public string? RestockBlocker(DateOnly businessDate)
+    {
+        if (ExpiryPolicy.IsExpired(ExpiryDate, businessDate))
+        {
+            return $"it expired on {ExpiryDate:yyyy-MM-dd}";
+        }
+
+        return Status switch
+        {
+            BatchStatus.Active or BatchStatus.Depleted => null,
+            BatchStatus.Expired => $"it expired on {ExpiryDate:yyyy-MM-dd}",
+            BatchStatus.WrittenOff => "it has been written off",
+            BatchStatus.Recalled => "it has been recalled",
+            _ => $"it is {Status}",
+        };
+    }
+
     public static MedicineBatch Receive(
         int medicineId,
         string batchNumber,
@@ -155,6 +179,36 @@ public class MedicineBatch
         if (QuantityOnHand == 0m)
         {
             Status = BatchStatus.Depleted;
+        }
+
+        UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Puts returned stock back on the shelf.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not an <see cref="IncreaseQuantity"/>: that records goods bought in, and bumps
+    /// QuantityReceived, which describes what a supplier sent. Returned stock was never bought again,
+    /// so only the cached balance moves and the batch stops being a reversible receipt — the goods it
+    /// now holds are not the ones that arrived. A return that is quarantined or destroyed never reaches
+    /// this method, so the cache stays equal to the sum of stock movements.
+    /// </remarks>
+    public void RestoreQuantity(decimal quantity, DateOnly businessDate, DateTimeOffset? nowUtc = null)
+    {
+        Guard.Positive(quantity, "Quantity");
+
+        var blocker = RestockBlocker(businessDate);
+        if (blocker is not null)
+        {
+            throw new DomainValidationException(
+                $"Batch '{BatchNumber}' cannot take returned stock back: {blocker}.");
+        }
+
+        QuantityOnHand += quantity;
+        if (Status == BatchStatus.Depleted)
+        {
+            Status = BatchStatus.Active;
         }
 
         UpdatedAtUtc = nowUtc ?? DateTimeOffset.UtcNow;

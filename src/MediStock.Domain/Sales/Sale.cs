@@ -30,6 +30,7 @@ public class Sale
     public const int CustomerNameMaxLength = 150;
     public const int CustomerPhoneMaxLength = 32;
     public const int NotesMaxLength = 500;
+    public const int CancellationReasonMaxLength = 300;
 
     /// <summary>Required by Entity Framework Core.</summary>
     private Sale()
@@ -77,15 +78,43 @@ public class Sale
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
+    /// <summary>When the invoice was cancelled, if it was.</summary>
+    public DateTimeOffset? CancelledAtUtc { get; private set; }
+
+    /// <summary>Operator who cancelled the invoice.</summary>
+    public string? CancelledBy { get; private set; }
+
+    /// <summary>Stated reason for the cancellation. Required whenever one is made.</summary>
+    public string? CancellationReason { get; private set; }
+
     public ICollection<SaleLine> Lines { get; private set; } = new List<SaleLine>();
 
     public ICollection<Payment> Payments { get; private set; } = new List<Payment>();
+
+    /// <summary>Customer returns recorded against this invoice, oldest first.</summary>
+    public ICollection<SalesReturn> Returns { get; private set; } = new List<SalesReturn>();
 
     /// <summary>Revenue less tax and the cost of the goods sold.</summary>
     public decimal Margin => Money.Round(Total - TaxTotal - CostTotal);
 
     /// <summary>Total quantity of units on the invoice.</summary>
     public decimal UnitsSold => Lines.Sum(l => l.Quantity);
+
+    /// <summary>Quantity of units returned by customers so far.</summary>
+    public decimal UnitsReturned => Lines.Sum(l => l.ReturnedQuantity);
+
+    /// <summary>Money refunded across all returns against this invoice.</summary>
+    public decimal RefundedTotal => Money.Round(Returns.Sum(salesReturn => salesReturn.RefundTotal));
+
+    /// <summary>
+    /// True once every line has been returned in full, so nothing is left to bring back.
+    /// </summary>
+    /// <remarks>
+    /// An invoice always has at least one line, so an empty collection means the lines were not loaded
+    /// rather than that there is nothing to return — and reporting "fully returned" then would let a
+    /// cancellation through on a sale whose stock is still out with the customer.
+    /// </remarks>
+    public bool IsFullyReturned => Lines.Count > 0 && Lines.All(line => line.IsFullyReturned);
 
     public static Sale Complete(
         string invoiceNumber,
@@ -160,5 +189,50 @@ public class Sale
         }
 
         return sale;
+    }
+
+    /// <summary>
+    /// Files a customer return against this invoice and marks the invoice returned once nothing is left
+    /// on it. Called by <see cref="SalesReturn.Record"}, which has already applied the quantities.
+    /// </summary>
+    internal void ApplyReturn(SalesReturn salesReturn)
+    {
+        ArgumentNullException.ThrowIfNull(salesReturn);
+
+        if (!Returns.Contains(salesReturn))
+        {
+            Returns.Add(salesReturn);
+        }
+
+        if (IsFullyReturned)
+        {
+            Status = SaleStatus.Returned;
+        }
+    }
+
+    /// <summary>
+    /// Cancels the invoice. Only allowed once everything on it has been returned, so that the stock a
+    /// cancellation is meant to undo is put back by the return rather than by deleting the sale.
+    /// </summary>
+    /// <exception cref="DomainValidationException">
+    /// The invoice is already cancelled, or quantities on it are still out with the customer.
+    /// </exception>
+    public void Cancel(string cancelledBy, string reason, DateTimeOffset? nowUtc = null)
+    {
+        if (Status == SaleStatus.Cancelled)
+        {
+            throw new DomainValidationException($"Invoice {InvoiceNumber} has already been cancelled.");
+        }
+
+        if (!IsFullyReturned)
+        {
+            throw new DomainValidationException(
+                $"Invoice {InvoiceNumber} still has {UnitsSold - UnitsReturned:0.###} unit(s) unreturned. Return them before cancelling, so that the stock the cancellation undoes is put back on the shelf.");
+        }
+
+        Status = SaleStatus.Cancelled;
+        CancelledBy = Guard.Required(cancelledBy, OperatorMaxLength, "Operator");
+        CancellationReason = Guard.Required(reason, CancellationReasonMaxLength, "Cancellation reason");
+        CancelledAtUtc = nowUtc ?? DateTimeOffset.UtcNow;
     }
 }

@@ -46,11 +46,6 @@ internal sealed class EfSalesQueries : ISalesQueries
             .SingleOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        if (header is null)
-        {
-            return DailySalesSummary.Empty(businessDate);
-        }
-
         // Quantities live on the lines rather than the header, so they need their own aggregate.
         var units = await db.SaleLines
             .AsNoTracking()
@@ -59,15 +54,24 @@ internal sealed class EfSalesQueries : ISalesQueries
             .SumAsync(line => (decimal?)line.Quantity, cancellationToken)
             .ConfigureAwait(false);
 
+        // A day can have returns without sales, so the returns are read even when the sales aggregate
+        // found nothing — otherwise the till would report a refund that never happened.
+        var returns = await LoadReturnsAsync(db, businessDate, businessDate, cancellationToken)
+            .ConfigureAwait(false);
+        var refunds = returns.GetValueOrDefault(businessDate);
+
         return new DailySalesSummary(
             businessDate,
-            header.SaleCount,
-            header.SubTotal,
-            header.DiscountTotal,
-            header.TaxTotal,
-            header.Total,
-            header.CostTotal,
-            units ?? 0m);
+            header?.SaleCount ?? 0,
+            refunds?.ReturnCount ?? 0,
+            header?.SubTotal ?? 0m,
+            header?.DiscountTotal ?? 0m,
+            header?.TaxTotal ?? 0m,
+            header?.Total ?? 0m,
+            header?.CostTotal ?? 0m,
+            units ?? 0m,
+            refunds?.UnitsReturned ?? 0m,
+            refunds?.RefundTotal ?? 0m);
     }
 
     public async Task<IReadOnlyList<DailySalesSummary>> GetDailySummariesAsync(
@@ -118,16 +122,20 @@ internal sealed class EfSalesQueries : ISalesQueries
             .ConfigureAwait(false);
 
         var unitsByDate = quantities.ToDictionary(row => row.BusinessDate, row => row.Units);
+        var returns = await LoadReturnsAsync(db, from, to, cancellationToken).ConfigureAwait(false);
 
         return [.. headers.Select(row => new DailySalesSummary(
             row.BusinessDate,
             row.SaleCount,
+            returns.GetValueOrDefault(row.BusinessDate)?.ReturnCount ?? 0,
             row.SubTotal,
             row.DiscountTotal,
             row.TaxTotal,
             row.Total,
             row.CostTotal,
-            unitsByDate.TryGetValue(row.BusinessDate, out var units) ? units : 0m))];
+            unitsByDate.TryGetValue(row.BusinessDate, out var units) ? units : 0m,
+            returns.GetValueOrDefault(row.BusinessDate)?.UnitsReturned ?? 0m,
+            returns.GetValueOrDefault(row.BusinessDate)?.RefundTotal ?? 0m))];
     }
 
     public async Task<IReadOnlyList<PaymentMethodTotal>> GetPaymentMethodTotalsAsync(
@@ -137,7 +145,7 @@ internal sealed class EfSalesQueries : ISalesQueries
     {
         await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
-        var rows = await Range(db.Sales, from, to)
+        var taken = await Range(db.Sales, from, to)
             .SelectMany(sale => sale.Payments)
             .GroupBy(payment => payment.Method)
             .Select(group => new
@@ -149,9 +157,32 @@ internal sealed class EfSalesQueries : ISalesQueries
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return [.. rows
-            .OrderBy(row => row.Method)
-            .Select(row => new PaymentMethodTotal(row.Method, row.SaleCount, row.Amount))];
+        // Refunds are netted off the method the money came back through, because that is the method's
+        // drawer or terminal the cashier has to reconcile. A method that only saw refunds still appears.
+        var refunded = await db.SalesReturns
+            .AsNoTracking()
+            .Where(salesReturn => (from == null || salesReturn.BusinessDate >= from)
+                && (to == null || salesReturn.BusinessDate <= to))
+            .GroupBy(salesReturn => salesReturn.RefundMethod)
+            .Select(group => new { Method = group.Key, Amount = group.Sum(row => row.RefundTotal) })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var refundsByMethod = refunded.ToDictionary(row => row.Method, row => row.Amount);
+
+        return
+        [
+            .. taken
+                .Select(row => new PaymentMethodTotal(
+                    row.Method,
+                    row.SaleCount,
+                    row.Amount,
+                    refundsByMethod.GetValueOrDefault(row.Method)))
+                .Concat(refunded
+                    .Where(row => taken.All(takenRow => takenRow.Method != row.Method))
+                    .Select(row => new PaymentMethodTotal(row.Method, 0, 0m, row.Amount)))
+                .OrderBy(row => row.Method),
+        ];
     }
 
     public async Task<IReadOnlyList<MedicineSalesTotal>> GetTopMedicinesAsync(
@@ -242,34 +273,48 @@ internal sealed class EfSalesQueries : ISalesQueries
         return source;
     }
 
-    private static async Task<List<DailySalesSummary>> SummariseAsync(
-        IQueryable<Sale> source,
+    /// <summary>
+    /// Reads the returns recorded between two business dates, keyed by the date the refund counts
+    /// towards. Returns are dated in their own right — a pack can come back days after the invoice —
+    /// so they are never attached to the sale's date.
+    /// </summary>
+    private static async Task<Dictionary<DateOnly, ReturnTotals>> LoadReturnsAsync(
+        MediStockDbContext db,
+        DateOnly from,
+        DateOnly to,
         CancellationToken cancellationToken)
     {
-        var rows = await source
+        var headers = await db.SalesReturns
             .AsNoTracking()
-            .GroupBy(_ => 1)
+            .Where(salesReturn => salesReturn.BusinessDate >= from && salesReturn.BusinessDate <= to)
+            .GroupBy(salesReturn => salesReturn.BusinessDate)
             .Select(group => new
             {
-                BusinessDate = group.Max(sale => sale.BusinessDate),
-                SaleCount = group.Count(),
-                SubTotal = group.Sum(sale => sale.SubTotal),
-                DiscountTotal = group.Sum(sale => sale.DiscountTotal),
-                TaxTotal = group.Sum(sale => sale.TaxTotal),
-                Total = group.Sum(sale => sale.Total),
-                CostTotal = group.Sum(sale => sale.CostTotal),
+                BusinessDate = group.Key,
+                ReturnCount = group.Count(),
+                RefundTotal = group.Sum(salesReturn => salesReturn.RefundTotal),
             })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return [.. rows.Select(row => new DailySalesSummary(
-            row.BusinessDate,
-            row.SaleCount,
-            row.SubTotal,
-            row.DiscountTotal,
-            row.TaxTotal,
-            row.Total,
-            row.CostTotal,
-            0m))];
+        var quantities = await db.SalesReturnLines
+            .AsNoTracking()
+            .Where(line => line.SalesReturn.BusinessDate >= from && line.SalesReturn.BusinessDate <= to)
+            .GroupBy(line => line.SalesReturn.BusinessDate)
+            .Select(group => new { BusinessDate = group.Key, Units = group.Sum(line => line.Quantity) })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var unitsByDate = quantities.ToDictionary(row => row.BusinessDate, row => row.Units);
+
+        return headers.ToDictionary(
+            row => row.BusinessDate,
+            row => new ReturnTotals(
+                row.ReturnCount,
+                unitsByDate.TryGetValue(row.BusinessDate, out var units) ? units : 0m,
+                row.RefundTotal));
     }
+
+    /// <summary>What came back on one business date.</summary>
+    private sealed record ReturnTotals(int ReturnCount, decimal UnitsReturned, decimal RefundTotal);
 }

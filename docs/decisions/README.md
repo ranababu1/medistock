@@ -12,6 +12,7 @@ Numbered, immutable records of decisions that are expensive to reverse. Read
 | [0005](0005-no-purchase-orders-or-goods-receipts.md) | One purchase document: no purchase orders, goods receipts or partial receiving | Accepted |
 | [0006](0006-context-lifetime-and-execution-strategy.md) | One database context per operation, the execution-strategy contract, and conditional lifecycle writes | Accepted |
 | [0007](0007-point-of-sale-pricing-and-settlement.md) | Point-of-sale pricing, allocation, settlement and invoice numbering | Accepted — **needs pharmacist and tax confirmation** |
+| [0008](0008-sales-returns-and-stock-disposition.md) | Sales returns, refunds and the disposition of returned stock | Accepted — **needs pharmacist and tax confirmation** |
 
 ## Adding a record
 

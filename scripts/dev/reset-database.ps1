@@ -38,11 +38,19 @@ try {
     dotnet ef database drop --force `
         --project src\MediStock.Infrastructure `
         --startup-project src\MediStock.Desktop | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The database could not be dropped, so nothing was rebuilt.'
+    }
 
     Write-Host 'Applying migrations...' -ForegroundColor Cyan
     dotnet ef database update `
         --project src\MediStock.Infrastructure `
         --startup-project src\MediStock.Desktop | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        # Without this the script used to announce success after a failed migration, which is exactly
+        # the sort of thing a verification script must never do.
+        throw 'A migration failed, so the database is not the schema this source describes.'
+    }
 
     Write-Host 'Schema rebuilt from migrations alone.' -ForegroundColor Green
 
