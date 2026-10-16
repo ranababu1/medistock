@@ -82,7 +82,32 @@ after producing the artefact and tells you the exact command to run.
 
 ---
 
-## 3. What the artefact is
+## 3. Continuous integration
+
+[`.github/workflows/build.yml`](../.github/workflows/build.yml) runs on every push to `main`, on
+every pull request, and on demand (`workflow_dispatch`):
+
+| Trigger | What runs |
+|---|---|
+| push to `main`, pull request | **Build and test** — `dotnet build` + the full suite on a `windows-latest` runner against its SQL Server LocalDB |
+| push of a `v*` tag | the same **Build and test** job, then **Publish release artefact** |
+
+The release job is deliberately not a reimplementation: it calls
+`.\scripts\release\publish-release.ps1 -SkipTests -SkipRelease` and then `gh release create` with
+the runner's `GITHUB_TOKEN`, so **CI and a local release can never drift apart**. `-SkipTests`
+exists because the test job has already run the suite.
+
+Consequences for the manual process in §2:
+
+- Step 7 (`git push origin main` + the tag) is what triggers the CI build — push the tag and the
+  release appears without any local `gh` authentication.
+- The push to `main` itself must already be green, because CI runs the suite again and the red
+  ✗ is public on the repository page.
+- A `v*` tag is a release. Don't push one for experimentation.
+
+---
+
+## 4. What the artefact is
 
 `MediStock-<version>-win-x64.zip` contains a **self-contained, single-file, framework-dependent-free**
 build: the .NET runtime is inside, so the target machine needs no .NET installation. It still needs
@@ -104,7 +129,7 @@ setup; a provisioned one goes straight to the sign-in window.
 
 ---
 
-## 4. Validating the artefact on a clean machine
+## 5. Validating the artefact on a clean machine
 
 Do this at least once per minor version. It is the only way to find a packaging bug before a
 pharmacy does.
@@ -124,7 +149,7 @@ pharmacy does.
 
 ---
 
-## 5. Release notes
+## 6. Release notes
 
 Write for a pharmacist, not a developer. Say what they can now do, what they should watch out for,
 and what the prerequisite is.
@@ -156,7 +181,7 @@ Manual stock adjustments, expiry write-offs, supplier returns, and PDF/Excel exp
 
 ---
 
-## 6. Hotfixes
+## 7. Hotfixes
 
 A fix released between milestones bumps `PATCH` — `0.5.0` → `0.5.1` — and gets its own changelog
 section and tag. The rule is the same: never ship a fix that is not in `CHANGELOG.md` with the commit

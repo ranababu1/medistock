@@ -7,7 +7,7 @@
 > what is half-finished, and what is known to be broken.
 
 **Snapshot taken:** 2026-10-16 · **Version:** 0.5.0 · **Branch:** `main` ·
-**HEAD:** `d3afcf8` (Milestone 5 complete; tagged `v0.5.0`)
+**HEAD:** `d0484e4` = tag `v0.5.0`, released; CI workflow on top
 
 ---
 
@@ -241,27 +241,31 @@ on teardown. Point them elsewhere with `MEDISTOCK_TEST_CONNECTION`.
 
 ## 8. What is not finished
 
-### Milestone 5 — in progress
+### Milestone 5 — complete and released as 0.5.0
 
 | Item | State |
 |---|---|
-| Users & Settings, Accounts tab | ✅ working, exercised by hand |
-| Users & Settings, Audit trail tab | ✅ working |
-| Users & Settings, Backup tab | ✅ working — a backup was taken, listed and sized |
-| Users & Settings, Support tab | ✅ working |
-| Backup **restore** end to end from the UI | ⚠️ implemented, not yet exercised against a live database |
-| Refusal paths for a lesser role (pharmacist sees refusal notes, not empty panels) | ⚠️ implemented, not yet exercised |
-| First-run setup on a genuinely empty database | ⚠️ exercised earlier in the milestone; not re-verified since the last schema change |
-| New tests for identity, audit and backup | ⏳ written? no — still to do |
-| ADR 0009 and 0010 | ⏳ not written |
-| `database-design.md` §3.14–3.15 and the new invariants | ⏳ not written |
-| Full-suite run after the Milestone 5 UI changes | ⏳ owed |
+| Users & Settings, all four tabs | ✅ working, exercised by hand |
+| Backup **restore** | ✅ real backup → change → restore round trip on a scratch database (`RestoreTests`) |
+| First-run setup on an empty database | ✅ ordered story test on a scratch database (`FirstAdministratorTests`) |
+| Identity, audit, backup and authorization tests | ✅ 653 green (348 domain, 169 application, 136 integration) |
+| ADR 0009 and 0010 | ✅ written |
+| `database-design.md` §3.14–3.15, invariants, `architecture.md` | ✅ updated |
+| Release | ✅ `v0.5.0` pushed; self-contained zip + `SHA256SUMS.txt` on the Releases page |
+
+### Milestone 6 — in progress
+
+| Item | State |
+|---|---|
+| GitHub Actions CI (build + test on push/PR, release on `v*` tags) | ✅ added this session, first run pending |
+| Installer / MSIX decision | ⏳ deferred — zip is the current distribution |
+| Validate the artefact on a clean machine (`docs/release-process.md` §5) | ⏳ still to do |
 
 ### Known rough edges
 
 - The audit summary deliberately distinguishes an unknown account name from a wrong password, while
-  the interactive refusal message is identical for both. This is a decision, not an oversight, and
-  needs to be written down in ADR 0009.
+  the interactive refusal message is identical for both. Recorded in
+  [ADR 0009](decisions/0009-users-roles-and-the-audit-trail.md) §5.
 - `InstantTextConverter` uses the **machine** time zone so screen and printed receipts agree, while
   `IClock` uses the configured `TimeZoneId`. On a one-PC installation these are the same thing; on a
   machine configured otherwise they will drift. Documented in the converter; worth revisiting.
@@ -299,11 +303,11 @@ inventory value and takings; a healthy database reports `OK` for all six.
 
 ## 10. Status of the working tree
 
-At the time of writing, Milestone 5 is **uncommitted on top of `7e5dddf`**: 21 modified files and 14
-new paths, including the whole of `src\MediStock.Domain\Identity`,
-`src\MediStock.Application\Identity`, `src\MediStock.Infrastructure\Identity`, the sign-in window,
-the Users & Settings screen and the new theme styles.
+Milestone 5 is **committed and released**: `d3afcf8` (Milestone 5) and `d0484e4` (release commit) are
+tagged `v0.5.0`, pushed to `github.com/ranababu1/medistock`, and the self-contained artefact is on
+the [Releases page](https://github.com/ranababu1/medistock/releases/tag/v0.5.0).
 
-The tree builds with **0 warnings and 0 errors**. The last full test run was at the end of
-Milestone 4 (286 green); the Milestone 5 changes have not yet had a full run — that is the next
-thing to do, and it is item `m5-verify` in [`plan.md`](plan.md) §4.
+On top of the release, this session added `.github/workflows/build.yml` (CI) and this very update.
+The tree builds with **0 warnings and 0 errors** and the full suite is green: **653 passed, 0
+failed** (348 domain, 169 application, 136 integration), most recently in the release build itself.
+The development database was rebuilt from migrations alone and all six reconciliation checks pass.

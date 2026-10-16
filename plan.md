@@ -84,9 +84,9 @@ MediStock.Infrastructure  →  MediStock.Application
 | 2 | Suppliers, purchasing, receiving, batch creation, stock movements | ✅ Complete |
 | 3 | Point of sale — cart, FEFO, pricing, tax, transactional checkout, invoices, receipts | ✅ Complete |
 | 4 | Returns and dispositions, cancellations, low-stock and expiry views, ten reports with CSV export | ✅ Complete |
-| **5** | **Users, roles, permissions, audit trail, backup/restore, diagnostics** | 🚧 **In progress** |
+| **5** | **Users, roles, permissions, audit trail, backup/restore, diagnostics** | ✅ **Complete — released as 0.5.0** |
 | 4b | Manual stock adjustments, expiry write-offs, supplier returns, quarantined-stock visibility | ⏳ Planned |
-| 6 | Packaging, installer, release process | ⏳ Planned |
+| **6** | **Packaging, installer, release process** | 🚧 **In progress** |
 
 ---
 
@@ -94,7 +94,7 @@ MediStock.Infrastructure  →  MediStock.Application
 
 **Goal:** the application is safe to put in front of a real pharmacy till. Named accounts, roles that
 mean something, an audit trail that names the actor, a backup you can actually restore, and enough
-diagnostics to support it.
+diagnostics to support it. **Released as `0.5.0` on 2026-10-16.**
 
 ### Work items
 
@@ -106,13 +106,13 @@ diagnostics to support it.
 | `m5-audit` | Audit staging wired into all five mutating catalogues + identity services, with the acting account | ✅ |
 | `m5-backup` | `IBackupService` / `SqlServerBackupService` — list, create, verify (`RESTORE VERIFYONLY`), restore | ✅ |
 | `m5-signin-ui` | First-run administrator setup, sign-in window, sign-out, shell operator strip | ✅ |
-| `m5-users-ui` | **Users & Settings** screen: Accounts / Audit trail / Backup / Support tabs | ✅ built, being verified |
-| `m5-users-audit` | Close the audit gaps: actor naming on every path, refusal rows, reason capture | 🚧 |
-| `m5-diagnostics` | Structured logs, support diagnostics view, global exception handlers | 🚧 |
-| `m5-tests` | Domain, application and integration tests for identity, audit, backup and recovery | ⏳ |
-| `m5-docs` | ADR 0009 and 0010, `database-design.md` §3.14–3.15, `architecture.md`, `roadmap.md`, `README.md` | ⏳ |
-| `m5-verify` | Build 0/0, full suite, rebuild the dev database, six reconciliation checks, UI smoke tests | ⏳ |
-| `m5-commit` | Bump to 0.5.0, commit, tag, release | ⏳ |
+| `m5-users-ui` | **Users & Settings** screen: Accounts / Audit trail / Backup / Support tabs | ✅ |
+| `m5-users-audit` | Close the audit gaps: actor naming on every path, refusal rows, reason capture | ✅ |
+| `m5-diagnostics` | Structured logs, support diagnostics view, global exception handlers | ✅ |
+| `m5-tests` | Domain, application and integration tests for identity, audit, backup and recovery — 653 green | ✅ |
+| `m5-docs` | ADR 0009 and 0010, `database-design.md` §3.14–3.15, `architecture.md`, `roadmap.md`, `README.md` | ✅ |
+| `m5-verify` | Build 0/0, full suite, rebuild the dev database, six reconciliation checks, UI smoke tests | ✅ |
+| `m5-commit` | Bump to 0.5.0, commit, tag, release | ✅ `d3afcf8` + `v0.5.0`, pushed; artefact on the Releases page |
 
 ### Acceptance criteria (from the brief)
 
@@ -149,13 +149,17 @@ that already existed. They are recorded here because the *pattern* matters more 
 
 ---
 
-## 5. Milestone 6 — packaging and release (next)
+## 5. Milestone 6 — packaging and release (in progress)
 
-- [ ] Publish a self-contained `win-x64` single-file build.
+- [x] Publish a self-contained `win-x64` single-file build. *(done — `publish-release.ps1`, shipped
+      as `v0.5.0`)*
+- [x] Add a GitHub Actions workflow that builds, tests and attaches the artifact to a tag.
+      *(`.github/workflows/build.yml` — build + test on every push/PR, release publish on `v*`
+      tags, reusing `publish-release.ps1`)*
 - [ ] Decide installer vs. MSIX; document the LocalDB/SQL Server prerequisite on the download page.
 - [ ] Add `-Setup.exe` naming, version stamping and release notes.
-- [ ] Test install → upgrade → backup → restore → uninstall on a clean machine.
-- [ ] Add a GitHub Actions workflow that builds, tests and attaches the artifact to a tag.
+- [ ] Test install → upgrade → backup → restore → uninstall on a clean machine
+      (`docs/release-process.md` §5).
 
 ---
 

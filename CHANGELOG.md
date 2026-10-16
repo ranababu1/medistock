@@ -12,6 +12,23 @@ Security, in that order.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **GitHub Actions CI** — `.github/workflows/build.yml`: every push to `main` and every pull
+  request builds the solution and runs all 653 tests on a `windows-latest` runner against its SQL
+  Server LocalDB; pushing a `v*` tag additionally publishes the self-contained artefact and
+  creates the GitHub release, reusing `publish-release.ps1` so CI and a local release cannot drift
+  apart. See `docs/release-process.md` §3.
+
+### Changed
+
+- `publish-release.ps1` gained `-SkipTests`, so the CI release job can skip a test suite it has
+  already run in its own test job.
+
+---
+
 ## [0.5.0] — Milestone 5: users, roles, audit and backup
 
 **Commit** `d3afcf8` · **Date** 2026-10-16 · *Add users, roles, permissions, audit trail and backup*

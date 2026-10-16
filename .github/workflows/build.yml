@@ -1,0 +1,79 @@
+name: build
+
+# Every push to main builds and runs the full suite (653 tests) against the runner's
+# SQL Server LocalDB. Pushing a v* tag does the same, then publishes the self-contained
+# win-x64 artefact to the GitHub Releases page.
+#
+# The release job reuses scripts\release\publish-release.ps1 so CI and a local release
+# can never drift apart. -SkipTests is passed because the test job has already run.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Start SQL Server LocalDB
+        shell: pwsh
+        run: |
+          sqllocaldb start MSSQLLocalDB
+          sqllocaldb info MSSQLLocalDB
+
+      - name: Build
+        run: dotnet build MediStock.slnx --nologo
+
+      - name: Test
+        run: dotnet test MediStock.slnx --nologo --no-build
+
+  release:
+    name: Publish release artefact
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the release artefact
+        shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart('v')
+          .\scripts\release\publish-release.ps1 -Version $version -SkipTests -SkipRelease
+
+      - name: Create the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart('v')
+          gh release create "v$version" `
+            "artifacts\MediStock-$version-win-x64.zip" `
+            "artifacts\SHA256SUMS.txt" `
+            --title "MediStock $version" `
+            --notes-file "artifacts\release-notes-$version.md" `
+            --verify-tag

@@ -21,6 +21,9 @@
 .PARAMETER SkipRelease
     Build and zip the artefact but do not create the GitHub release.
 
+.PARAMETER SkipTests
+    Skip the test suite. The release job in CI runs the suite in its own job first.
+
 .PARAMETER AllowDirtyTree
     Release even though the working tree has uncommitted changes.
 
@@ -36,6 +39,8 @@ param(
     [string]$Notes,
 
     [switch]$SkipRelease,
+
+    [switch]$SkipTests,
 
     [switch]$AllowDirtyTree
 )
@@ -89,12 +94,18 @@ finally {
     Pop-Location
 }
 
-# --------------------------------------------------------------------------- build
-Write-Step 'Testing'
+# --------------------------------------------------------------------------- tests
+if ($SkipTests) {
+    Write-Step 'Skipping the test suite (-SkipTests)'
+    Write-Warn2 'the caller is responsible for having run the suite - CI runs it in its own job'
+}
+else {
+    Write-Step 'Testing'
 
-dotnet test (Join-Path $repoRoot 'MediStock.slnx') --nologo -v q
-if ($LASTEXITCODE -ne 0) { throw 'The test suite failed. Not releasing.' }
-Write-Ok 'all tests passed'
+    dotnet test (Join-Path $repoRoot 'MediStock.slnx') --nologo -v q
+    if ($LASTEXITCODE -ne 0) { throw 'The test suite failed. Not releasing.' }
+    Write-Ok 'all tests passed'
+}
 
 # --------------------------------------------------------------------------- publish
 Write-Step "Publishing $Version for win-x64"
