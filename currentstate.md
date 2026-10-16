@@ -257,7 +257,7 @@ on teardown. Point them elsewhere with `MEDISTOCK_TEST_CONNECTION`.
 
 | Item | State |
 |---|---|
-| GitHub Actions CI (build + test on push/PR, release on `v*` tags) | ✅ added this session, first run pending |
+| GitHub Actions CI (build + test on push/PR, release on `v*` tags) | ✅ first run green on `bf16e2d` |
 | Installer / MSIX decision | ⏳ deferred — zip is the current distribution |
 | Validate the artefact on a clean machine (`docs/release-process.md` §5) | ⏳ still to do |
 
