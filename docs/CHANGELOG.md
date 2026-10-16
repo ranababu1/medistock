@@ -16,6 +16,44 @@ Security, in that order.
 
 ### Added
 
+- **Stock corrections and supplier returns — Milestone 4b, wired end to end** (`89f6ebf`,
+  2026-10-16) — the corrections domain (ADR 0011) is now the working application:
+  - **`IInventoryOperations`** (`AdjustAsync`, `WriteOffAsync`, `QuarantineAsync`) implemented
+    by `EfInventoryOperations`: the batch is re-read inside the transaction, the cached balance
+    moves through the domain's own guards, one movement is appended to the stock ledger, the audit
+    row is staged — all of it or none of it. The write is conditional on the batch's `rowversion`,
+    so two operators acting on the same batch cannot both move it; the loser re-reads and retries.
+  - **`GuardedInventoryOperations`** and **`GuardedSupplierReturnCatalog`** — authorization
+    decorators around the new contracts, so `AdjustStock` and `ReturnToSupplier` are enforced in
+    the application layer like every other guarded contract, and a test enumerating
+    `GuardedContracts` fails if a new one ships unguarded.
+  - **Inventory corrections strip** — pick a batch, correct its count by typing the **difference**
+    against a stated ledger figure (so the operator never re-types the whole count), write the
+    whole batch off for expiry or damage, write it off as a recall disposal, or hold it back in
+    recall or condemned quarantine. Every path asks for a reason, shows a confirmation quoting the
+    exact effect, and reports what landed with the movement in the ledger below.
+  - **Supplier returns** — on the Returns screen: pick the supplier, search its in-stock batches,
+    add lines with quantity and credit at cost, record the return under an atomically allocated
+    `SRET-2026-…` number, and see the history. The batch must belong to the chosen supplier;
+    recalled, written-off and expired stock cannot go back; lines against one batch are merged.
+    Stock leaves in the same transaction as the return and its lines — and there is deliberately
+    no reversal (ADR 0011): goods that came back by mistake are received again.
+  - **Quarantined-stock view** — the Returns screen lists batches held out of sale pending
+    disposal, with the reason and who held them.
+  - **`SupplierReturns` and `SupplierReturnLines`** tables (migration
+    `20261016072918_AddSupplierReturns`): unique `ReturnNumber`, unique line numbers per return,
+    positive quantities, non-negative cost values, a reason that cannot be blank, and FKs to
+    `Suppliers` and `MedicineBatches` with no cascade.
+  - **Four new audit actions wired** — `StockAdjusted`, `StockWrittenOff`, `StockQuarantined`,
+    `SupplierReturnRecorded` — each written inside the transaction it describes.
+  - 21 integration tests (`InventoryOperationsTests`, `SupplierReturnCatalogTests`) and guarded-
+    contract application tests: 710 green in total (372 domain, 181 application, 157 integration).
+  - **Runtime-verified** — every new screen flow was driven through the running application with UI
+    automation: a count adjustment (`-6` on a live batch, movement `AdjustmentDecrease`, performed
+    by the signed-in operator), an expired-batch write-off (15 units disposed, batch gone from the
+    in-stock list), a recall quarantine hold (25 units held, nothing destroyed), and a supplier
+    return recorded live (`SRET-2026-000001`, 10 units, credit at cost, stock 130 → 120).
+
 - **Stock-corrections domain — Milestone 4b groundwork** (`92fe8f6`, 2026-10-16) — the
   `SupplierReturn` aggregate: batches can only go back to the supplier that sold them, recalled
   and written-off stock is refused, repeated lines against one batch are counted together, and
@@ -40,6 +78,23 @@ Security, in that order.
   contributor or an agent needs for context. `docs/release-process.md` links updated.
 
 ### Fixed
+
+- **Three defects found by driving the new screens through the running application** (`89f6ebf`,
+  2026-10-16):
+  1. **A supplier-return line added on its own recorded quantity zero.** Adding a second line
+     against a batch already in the draft merged quantities correctly, but the first line was
+     created from the chosen quantity and then never assigned it, so the draft showed `0` units
+     and a `0.00` credit until the operator noticed. The fresh-line path now sets the quantity
+     before the line is added.
+  2. **The supplier-return "Returned by" box seeded the Windows account name**, not the signed-in
+     operator, so a return recorded by Ravi Menon was attributed to the machine login instead.
+     The field now defaults to the session's friendly name with the machine name only as a
+     fallback, matching every other operator field in the application.
+  3. **"Adjust count" was clickable on a batch the domain refuses to move.** Recalled and
+     written-off batches are frozen by `MedicineBatch` itself, but the strip still offered the
+     button and a generic hint, so an operator could walk the whole prompt flow only to be
+     refused at the end. The button is now gated to movable batches, and the strip explains a
+     held or disposed batch in its own words: what can still be done to it, and what cannot.
 
 - **Code-review findings** (`7d1d4c4`, 2026-10-16) — receipt stock movements are now booked under
   the operator-supplied received-on date instead of the entry day, so the ledger agrees with the

@@ -6,8 +6,8 @@
 > Read this first when picking the project up. It is written to be honest about what is finished,
 > what is half-finished, and what is known to be broken.
 
-**Snapshot taken:** 2026-10-16 · **Version:** 0.5.0 · **Branch:** `main` ·
-**HEAD:** `d0484e4` = tag `v0.5.0`, released; CI workflow on top
+**Snapshot taken:** 2026-10-16 · **Version:** 0.6.0 · **Branch:** `main` ·
+**HEAD:** the `v0.6.0` release — Milestone 4b code in `89f6ebf`, released with these docs
 
 ---
 
@@ -17,11 +17,13 @@ MediStock is a working WPF desktop application. It opens, connects to a SQL Serv
 applies its own migrations, signs an operator in against a real account with a hashed password,
 and then offers a complete pharmacy workflow: maintain a medicine catalogue, keep suppliers, raise
 and receive purchases that create batches and stock movements, sell at the counter with first-expiry
-allocation and transactional checkout, return goods with a disposition, and export any of ten
-operational reports to CSV. Everything that moves stock or money is written to an append-only ledger
-inside the same transaction as the change itself, every sensitive action is written to an audit
-trail naming the account that did it, and the database can be backed up, verified and restored from
-inside the application. It has 286 automated tests, of which 77 run against a real SQL Server.
+allocation and transactional checkout, return goods with a disposition, correct a count that
+disagrees with the shelf, write off expired or damaged stock, hold a recalled batch out of sale,
+send stock back to the supplier for credit, and export any of ten operational reports to CSV.
+Everything that moves stock or money is written to an append-only ledger inside the same transaction
+as the change itself, every sensitive action is written to an audit trail naming the account that
+did it, and the database can be backed up, verified and restored from inside the application. It has
+710 automated tests, of which 157 run against a real SQL Server.
 
 ---
 
@@ -96,6 +98,20 @@ Stock listed by medicine and batch with sellable / non-sellable state, expiry fi
 movement history. A live reconciliation reports whether every cached batch balance still equals the
 sum of its movements.
 
+Pick a batch and a **corrections strip** appears *(Milestone 4b)*:
+
+- **Adjust count** — type the *difference* against a stated ledger figure ("12 to add, or -4 to
+  remove"), give a reason, confirm the exact effect, and the batch moves through its own guards,
+  one ledger row and one audit row, in a single transaction.
+- **Write off** — dispose of the whole batch for expiry or damage, or close out a recalled one.
+  The balance zeroes, the status becomes `WrittenOff`, and nothing on the batch can move again.
+- **Quarantine** — hold a batch back for recall or condemnation. The stock stays where it is,
+  visible and counted, but every sale, adjustment and supplier return is refused until it is
+  written off.
+
+Buttons appear only for what the batch can actually do: a recalled or written-off batch shows its
+state in words instead of offering a correction the domain would refuse.
+
 ### New Sale (point of sale)
 
 Search or scan a medicine into a cart. Eligible batches are shown with their expiry dates; the
@@ -118,13 +134,23 @@ reason plus a per-line disposition: **restock**, **quarantine** or **destroy**. 
 goes back on the shelf when the operator chooses *restock* **and** the batch is still inside its
 expiry policy. Refunds and returned cost are apportioned across the original lines to the paisa.
 
+**Supplier returns** *(Milestone 4b)*: pick the supplier, search its in-stock batches, add lines with
+quantity and credit at cost (repeated lines against one batch are merged), and record the return
+under an atomically allocated `SRET-2026-…` number. The batch must belong to the chosen supplier;
+recalled, written-off and expired stock is refused. Stock leaves in the same transaction as the
+return and its lines, and there is deliberately no reversal — goods that came back by mistake are
+received again ([ADR 0011](decisions/0011-stock-corrections.md)).
+
+**Stock held in quarantine** *(Milestone 4b)*: the screen also lists batches held out of sale pending
+disposal, with the reason and who held them.
+
 ### Reports
 
 Ten reports — daily sales, sales by medicine, sales by payment method, purchase history, stock by
 batch, low stock, expiring stock, stock movements, inventory valuation and sales returns — rendered
 as filterable tables with totals, and exportable to RFC 4180 CSV with a formula-injection guard.
 
-### Users & Settings *(Milestone 5 — built, being verified)*
+### Users & Settings
 
 Four tabs:
 
@@ -145,7 +171,7 @@ Four tabs:
 | Administrator | everything, including managing users, backing up and reading the audit trail |
 | Pharmacist | everything except managing users, backing up and reading the audit trail |
 | Cashier | sell |
-| Inventory operator | manage medicines and suppliers, receive purchases, run reports |
+| Inventory operator | manage medicines and suppliers, receive purchases, run reports, correct stock and send goods back to suppliers |
 
 Permissions are enforced by decorators around the catalogue contracts, so a screen cannot reach the
 database without passing a permission check — and an application test enumerates every guarded
@@ -155,7 +181,7 @@ contract so a new one cannot ship unguarded.
 
 ## 4. Database
 
-**Seven migrations**, applied automatically at startup when `ApplyMigrationsOnStartup` is true:
+**Eight migrations**, applied automatically at startup when `ApplyMigrationsOnStartup` is true:
 
 ```
 20261015214039_InitialCreate
@@ -165,6 +191,7 @@ contract so a new one cannot ship unguarded.
 20261015224739_MedicineTaxRatePrecision
 20261015225936_SalesReturnsAndStockDisposition
 20261016050304_UsersRolesAndAuditLog
+20261016072918_AddSupplierReturns
 ```
 
 The development database is `MediStock` on `(localdb)\MSSQLLocalDB`; the integration test database is
@@ -227,31 +254,28 @@ through the real first-run path.
 
 | Project | Covers | Count |
 |---|---|---|
-| `MediStock.Domain.Tests` | money rounding and proportional shares, guards, medicine rules, expiry policy, FEFO ordering, batch balances and restock eligibility, movements, purchase lifecycle, sale pricing and settlement, returns and refund estimation, **roles, permissions, password policy, first-administrator rules** | 191 |
-| `MediStock.Application.Tests` | DTO and draft normalisation, `OperationResult` semantics, **the guarded-contract inventory and decorator refusals** | 18 |
-| `MediStock.IntegrationTests` | migrations, schema constraints, catalogue, suppliers, receiving, checkout, returns, every report definition, **identity, audit, backup and restore** | 77 |
+| `MediStock.Domain.Tests` | money rounding and proportional shares, guards, medicine rules, expiry policy, FEFO ordering, batch balances and restock eligibility, movements, purchase lifecycle, sale pricing and settlement, returns and refund estimation, roles, permissions, password policy, first-administrator rules, **supplier returns, write-offs and quarantine** | 372 |
+| `MediStock.Application.Tests` | DTO and draft normalisation, `OperationResult` semantics, the guarded-contract inventory, decorator refusals, **stock-correction and supplier-return drafts** | 181 |
+| `MediStock.IntegrationTests` | migrations, schema constraints, catalogue, suppliers, receiving, checkout, returns, every report definition, identity, audit, backup and restore, **inventory operations (adjust / write off / quarantine), supplier-return recording** | 157 |
 
 Integration tests need a reachable SQL Server; they create `MediStock_Test`, migrate it, and drop it
 on teardown. Point them elsewhere with `MEDISTOCK_TEST_CONNECTION`.
-
-> The count is the last **verified** figure (Milestone 4, all green). Milestone 5 added tests that
-> have not yet been counted here — see §8.
 
 ---
 
 ## 8. What is not finished
 
-### Milestone 5 — complete and released as 0.5.0
+### Milestone 4b — complete and released as 0.6.0
 
 | Item | State |
 |---|---|
-| Users & Settings, all four tabs | ✅ working, exercised by hand |
-| Backup **restore** | ✅ real backup → change → restore round trip on a scratch database (`RestoreTests`) |
-| First-run setup on an empty database | ✅ ordered story test on a scratch database (`FirstAdministratorTests`) |
-| Identity, audit, backup and authorization tests | ✅ 653 green (348 domain, 169 application, 136 integration) |
-| ADR 0009 and 0010 | ✅ written |
-| `database-design.md` §3.14–3.15, invariants, `architecture.md` | ✅ updated |
-| Release | ✅ `v0.5.0` pushed; self-contained zip + `SHA256SUMS.txt` on the Releases page |
+| Corrections strip on Inventory (adjust / write off / quarantine) | ✅ working, **exercised through the running application with UI Automation** |
+| Supplier returns on Returns & Adjustments | ✅ working, exercised live (`SRET-2026-000001` recorded end to end) |
+| Quarantined-stock read model | ✅ working, exercised live |
+| Guarded operations (`AdjustStock`, `ReturnToSupplier`) and audit staging | ✅ tested; `GuardedContracts` enumeration test keeps every contract guarded |
+| 4b tests | ✅ 710 green (372 domain, 181 application, 157 integration) |
+| ADR 0011, `database-design.md` §3.16–3.17, `plan.md`, this file | ✅ written |
+| Release | ✅ `v0.6.0` pushed; self-contained zip + `SHA256SUMS.txt` on the Releases page |
 
 ### Milestone 6 — in progress
 
@@ -276,9 +300,8 @@ on teardown. Point them elsewhere with `MEDISTOCK_TEST_CONNECTION`.
 
 ### Not implemented at all
 
-Manual stock adjustments · expiry write-offs · supplier returns · quarantined-stock view · PDF and
-Excel export · barcode label printing · purchase orders and approvals · installer and MSIX packaging
-· automatic upgrades · multi-user over a LAN · multi-branch · any import tooling.
+PDF and Excel export · barcode label printing · purchase orders and approvals · installer and MSIX
+packaging · automatic upgrades · multi-user over a LAN · multi-branch · any import tooling.
 
 ---
 
@@ -303,11 +326,14 @@ inventory value and takings; a healthy database reports `OK` for all six.
 
 ## 10. Status of the working tree
 
-Milestone 5 is **committed and released**: `d3afcf8` (Milestone 5) and `d0484e4` (release commit) are
-tagged `v0.5.0`, pushed to `github.com/ranababu1/medistock`, and the self-contained artefact is on
-the [Releases page](https://github.com/ranababu1/medistock/releases/tag/v0.5.0).
+Milestone 4b is **committed and released**: the stock-corrections code (`89f6ebf`), these docs and
+the version bump are tagged `v0.6.0`, pushed to `github.com/ranababu1/medistock`, and the
+self-contained artefact is published to the
+[Releases page](https://github.com/ranababu1/medistock/releases) by CI on the tag.
 
-On top of the release, this session added `.github/workflows/build.yml` (CI) and this very update.
-The tree builds with **0 warnings and 0 errors** and the full suite is green: **653 passed, 0
-failed** (348 domain, 169 application, 136 integration), most recently in the release build itself.
-The development database was rebuilt from migrations alone and all six reconciliation checks pass.
+The tree builds with **0 warnings and 0 errors** and the full suite is green: **710 passed, 0
+failed** (372 domain, 181 application, 157 integration), most recently during release verification.
+The development database was rebuilt from migrations alone; all six reconciliation checks pass. Every
+new screen flow was additionally driven through the running application — a count adjustment, an
+expiry write-off, a recall quarantine and a supplier return were each recorded live, which is how
+the three bugs listed in [`CHANGELOG.md`](CHANGELOG.md) under 0.6.0 were caught and closed.

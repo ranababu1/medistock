@@ -60,7 +60,7 @@ dedicated review.
 | Direct SQL | parameterised ADO.NET where EF gets in the way | invoice numbering, backup/restore |
 | Validation | domain/application rules **and** database constraints | one never replaces the other |
 | Logging | Microsoft.Extensions.Logging + a file provider | `%LOCALAPPDATA%\MediStock\logs` |
-| Testing | xUnit | 286 tests at v0.4 |
+| Testing | xUnit | 710 tests at v0.6.0 |
 | Source control | Git | `origin` = `github.com/ranababu1/medistock` |
 | Packaging | `dotnet publish` self-contained + zip | attached to GitHub Releases |
 
@@ -85,67 +85,58 @@ MediStock.Infrastructure  →  MediStock.Application
 | 3 | Point of sale — cart, FEFO, pricing, tax, transactional checkout, invoices, receipts | ✅ Complete |
 | 4 | Returns and dispositions, cancellations, low-stock and expiry views, ten reports with CSV export | ✅ Complete |
 | **5** | **Users, roles, permissions, audit trail, backup/restore, diagnostics** | ✅ **Complete — released as 0.5.0** |
-| 4b | Manual stock adjustments, expiry write-offs, supplier returns, quarantined-stock visibility | ⏳ Planned |
+| 4b | Manual stock adjustments, expiry write-offs, recall quarantine, supplier returns, quarantined-stock visibility | ✅ **Complete — released as 0.6.0** |
 | **6** | **Packaging, installer, release process** | 🚧 **In progress** |
 
 ---
 
-## 4. Milestone 5 — the current sprint
+## 4. Milestone 4b — the current sprint
 
-**Goal:** the application is safe to put in front of a real pharmacy till. Named accounts, roles that
-mean something, an audit trail that names the actor, a backup you can actually restore, and enough
-diagnostics to support it. **Released as `0.5.0` on 2026-10-16.**
+**Goal:** the three stock paths a pharmacy cannot live without and the original scope left open —
+count corrections, expiry/damage disposal, recall holds, and medicine going back to the supplier.
+**Released as `0.6.0` on 2026-10-16.**
 
 ### Work items
 
 | Item | Scope | State |
 |---|---|---|
-| `m5-identity-domain` | `Permission`, `Role`, `PermissionSet`, `PasswordPolicy`, `PasswordHash`, `User`, `AuditAction`, `AuditEntry` | ✅ |
-| `m5-app-identity` | `IAuthenticationService`, `IUserDirectory`, `IAuditTrail`, `UserSession`, drafts and DTOs, seven authorization decorators | ✅ |
-| `m5-ef-identity` | `Users` / `AuditLogs` tables, EF configuration, `Pbkdf2PasswordHasher`, `EfUserDirectory`, `EfAuthenticationService`, `AuditJournal`, `EfAuditTrail` | ✅ |
-| `m5-audit` | Audit staging wired into all five mutating catalogues + identity services, with the acting account | ✅ |
-| `m5-backup` | `IBackupService` / `SqlServerBackupService` — list, create, verify (`RESTORE VERIFYONLY`), restore | ✅ |
-| `m5-signin-ui` | First-run administrator setup, sign-in window, sign-out, shell operator strip | ✅ |
-| `m5-users-ui` | **Users & Settings** screen: Accounts / Audit trail / Backup / Support tabs | ✅ |
-| `m5-users-audit` | Close the audit gaps: actor naming on every path, refusal rows, reason capture | ✅ |
-| `m5-diagnostics` | Structured logs, support diagnostics view, global exception handlers | ✅ |
-| `m5-tests` | Domain, application and integration tests for identity, audit, backup and recovery — 653 green | ✅ |
-| `m5-docs` | ADR 0009 and 0010, `database-design.md` §3.14–3.15, `architecture.md`, `roadmap.md`, `README.md` | ✅ |
-| `m5-verify` | Build 0/0, full suite, rebuild the dev database, six reconciliation checks, UI smoke tests | ✅ |
-| `m5-commit` | Bump to 0.5.0, commit, tag, release | ✅ `d3afcf8` + `v0.5.0`, pushed; artefact on the Releases page |
+| `m4b-domain` | `SupplierReturn` aggregate, `MedicineBatch.WriteOffRemainingStock`, `AdjustStock`/`ReturnToSupplier` permissions, `StockQuarantined` audit action, `SRET` numbering, ADR 0011 | ✅ |
+| `m4b-app` | `IInventoryOperations` (adjust/write-off/quarantine), `ISupplierReturnCatalog` + draft, `StockCorrectionDrafts`, `GuardedInventoryOperations`, `GuardedSupplierReturnCatalog` | ✅ |
+| `m4b-ef` | `EfInventoryOperations`, `EfSupplierReturnCatalog`, `SupplierReturns`/`SupplierReturnLines` configuration and migration, audit staging, rowversion-checked writes | ✅ |
+| `m4b-inventory-ui` | Corrections strip on Inventory: difference-based count correction, whole-batch write-off (expiry/damage), recall and condemned quarantine holds, per-status hints | ✅ |
+| `m4b-supplier-ui` | Supplier-return card on Returns & Adjustments: supplier picker, batch search, line add/merge, SRET recording, history list | ✅ |
+| `m4b-quarantine-view` | Stock-held-in-quarantine read model on Returns & Adjustments | ✅ |
+| `m4b-tests` | Domain, guarded-contract and integration tests — 710 green | ✅ |
+| `m4b-verify` | Build 0/0, full suite, migration rebuild, reconciliation, **runtime UI verification of every flow via UI Automation** | ✅ |
+| `m4b-release` | Bump to 0.6.0, commit, tag, release | ✅ `89f6ebf` + `v0.6.0`, pushed; artefact on the Releases page |
 
 ### Acceptance criteria (from the brief)
 
-- Unauthorized actions are blocked **in the application layer** and enforced where applicable at the
-  data boundary.
-- Sensitive operations are auditable, and the audit row names the account that did it.
-- A backup can be restored successfully in a test environment.
-- Errors are actionable and never expose credentials or sensitive information.
+- Every correction writes its own typed stock-movement row with a reason; balances still reconcile
+  against the ledger.
+- Recalled and written-off stock cannot be sold, restocked or returned to the supplier, and the UI
+  no longer offers actions the domain would refuse.
+- Supplier returns leave stock and record the return in one transaction, under an atomically
+  allocated `SRET` number, with credit at the price the goods entered at.
+- The correction path is audited (`StockAdjusted`, `StockWrittenOff`, `StockQuarantined`,
+  `SupplierReturnRecorded`) with the acting account inside the same transaction.
 
 ### Known defects found and closed during this sprint
 
-Each of these was a real bug caught by review or by exercising the running application, not by a test
-that already existed. They are recorded here because the *pattern* matters more than the instance.
+1. **A fresh supplier-return line recorded quantity zero** — the line was created from the chosen
+   quantity but the quantity was never assigned to it, so the first line showed `0` units and a
+   `0.00` credit. Found by exercising the running screen.
+2. **The "Returned by" box seeded the Windows account name**, not the signed-in operator, so a
+   return by Ravi Menon was attributed to the machine login. Found by inspecting a live recorded
+   return.
+3. **"Adjust count" was clickable on a batch the domain refuses to move** — recalled and
+   written-off batches are frozen by `MedicineBatch`, but the strip still offered the button, so an
+   operator could walk the whole prompt flow only to be refused at the end. Found by following the
+   designed next step (quarantine → write-off) through the UI.
 
-1. **Lifecycle writes were unconditional** (`UPDATE … WHERE Id = @p`). Two operators could both
-   receive the same purchase. *Closed in M2* with a `rowversion` concurrency token and a unit-of-work
-   retry; extended to purchases, sales and returns in M3/M4.
-2. **Audit rows lost the actor.** `EfUserDirectory`, `EfMedicineCatalog` and `EfSupplierCatalog`
-   called the two-argument `AuditJournal.Stage`, which defaults the actor to `system` — so every
-   catalogue edit was logged as if the machine had done it. *Closed in M5.*
-3. **Self-targeted account administration.** `EfUserDirectory` refused to let an administrator
-   deactivate themselves but happily let them demote themselves, which could lock everyone out.
-   *Closed in M5.*
-4. **Timestamps rendered as UTC on screen** while receipts printed local time. *Closed in M5* with
-   `InstantTextConverter`.
-5. **Collection modified from a thread-pool thread.** `SignOutAsync` runs with `ConfigureAwait(false)`
-   and then raised `IUserSession.Changed` off the UI thread; the shell rebuilt the page and a bound
-   `ObservableCollection` blew up. *Closed in M5* by marshalling in `ShellViewModel.OnSessionChanged`.
-6. **Fatal XAML binding on a read-only property.** A `TextBox` two-way-bound to a get-only
-   `BackupFolder` killed the process with no dialog. *Closed in M5*; the global exception handlers
-   installed at the same time are what made it diagnosable.
-7. **A custom `TabControl` template silently blanked every tab body** because the content presenter
-   was not named `PART_SelectedContentHost`. No exception, no warning. *Closed in M5.*
+Milestone 5's sprint record — work items, acceptance criteria and its seven known defects — now
+lives in [`CHANGELOG.md`](CHANGELOG.md) under `0.5.0`, and in the docs as they stood at tag
+`v0.5.0`.
 
 ---
 
@@ -165,10 +156,9 @@ that already existed. They are recorded here because the *pattern* matters more 
 
 ## 6. Backlog (after 1.0)
 
-Manual stock adjustments and expiry write-offs · supplier returns · quarantined-stock view · PDF and
-Excel exports · barcode label printing · purchase orders and approvals · supplier price history ·
-catalogue import · multi-user over a LAN · multi-branch reporting · deterministic-rules-first AI
-assisted search over product descriptions.
+PDF and Excel exports · barcode label printing · purchase orders and approvals · supplier price
+history · catalogue import · multi-user over a LAN · multi-branch reporting ·
+deterministic-rules-first AI assisted search over product descriptions.
 
 None of these start before the core is reliable.
 
@@ -190,7 +180,8 @@ Every increment follows the same loop. Do not skip a step because the change "lo
    `CRITICAL` entries that were not deliberately provoked.
 7. **Document** — update `CHANGELOG.md`, `currentstate.md`, the affected `docs/`, and add an ADR if a
    decision was made rather than a change.
-8. **Commit** — small, imperative subject line, body explaining *why*, `Co-authored-by` trailer.
+8. **Commit** — small, imperative subject line, body explaining *why*, no AI-attribution trailers;
+   the configured Git author stays untouched.
 
 ---
 
@@ -202,7 +193,8 @@ Versioning is **`0.MINOR.PATCH`**, where `MINOR` tracks the milestone:
 |---|---|
 | `0.1.0` … `0.4.0` | Milestones 0–4 complete |
 | `0.5.0` | Milestone 5 — users, audit, backup |
-| `0.6.0` | Milestone 6 — packaging |
+| `0.6.0` | Milestone 4b — stock corrections, supplier returns, quarantine |
+| `0.7.0` | Milestone 6 — packaging and installer |
 | `1.0.0` | First release intended for a real pharmacy, after validation |
 
 `PATCH` is bumped for fixes released between milestones.
@@ -212,7 +204,7 @@ and is stamped into the assembly, the window title and the artefact name.
 
 ```powershell
 # build the release artefact and create a GitHub release
-.\scripts\release\publish-release.ps1 -Version 0.5.0
+.\scripts\release\publish-release.ps1 -Version 0.6.0
 ```
 
 See [`docs/release-process.md`](docs/release-process.md) for the full checklist, including the

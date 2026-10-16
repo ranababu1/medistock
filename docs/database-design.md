@@ -647,6 +647,73 @@ which is why an audit row for a refused sign-in — the one action that changes 
 written on a context of its own. If the change rolls back, the row goes with it: the trail states what
 happened, not what was attempted.
 
+Milestone 4b gave the trail four more actions: `StockAdjusted`, `StockWrittenOff`, `StockQuarantined` and
+`SupplierReturnRecorded`. Each is staged inside the transaction that moves the stock, so an adjustment that
+rolls back leaves no audit row claiming it succeeded.
+
+### 3.16 `SupplierReturns`
+
+The header of a batch of medicine sent back to the supplier that sold it — expired stock returned for
+credit, a wrong delivery taken back, the ordinary traffic of a pharmacy with supplier agreements. The
+domain type is the `SupplierReturn` aggregate ([ADR 0011](decisions/0011-stock-corrections.md)): a
+return exists only as a whole, lines cannot be added to a recorded one, and there is deliberately no
+reversal — goods that came back by mistake are received again, because a paper trail that can be
+edited is not a trail.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `bigint IDENTITY` | no | PK |
+| `ReturnNumber` | `nvarchar(32)` | no | Human number, `SRET-2026-000001`, allocated atomically; unique |
+| `BusinessDate` | `date` | no | The local business date, for the daily and date-range reports |
+| `ReturnedAtUtc` | `datetimeoffset(3)` | no | The UTC instant the return was recorded |
+| `ReturnedBy` | `nvarchar(150)` | no | The operator's friendly name, seeded from the session |
+| `SupplierId` | `int` | no | FK → `Suppliers.Id`, **no cascade** — history survives a supplier's removal |
+| `Reason` | `nvarchar(300)` | no | Why the goods went back; cannot be blank |
+| `Notes` | `nvarchar(500)` | yes | Free notes beyond the reason |
+| `SupplierCreditNoteNumber` | `nvarchar(60)` | yes | The credit note the supplier issued, for reconciliation |
+| `TotalCostValue` | `decimal(18,2)` | no | Sum of the lines' cost values; computed by the aggregate |
+| `CreatedAtUtc` | `datetimeoffset(3)` | no | Row creation stamp |
+
+| Name | Definition |
+|---|---|
+| `PK_SupplierReturns` | Clustered primary key on `(Id)` |
+| `UX_SupplierReturns_ReturnNumber` | Unique on `(ReturnNumber)` |
+| `IX_SupplierReturns_BusinessDate` | The reports ask by date range |
+| `IX_SupplierReturns_SupplierId` | The history tab asks by supplier |
+
+### 3.17 `SupplierReturnLines`
+
+One row per batch that went back. The quantity is constrained positive — a return of nothing is a note,
+not a stock movement — and the cost columns mirror the purchase line they reverse, so the valuation
+report can show the credit at the price the goods actually entered at.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `bigint IDENTITY` | no | PK |
+| `SupplierReturnId` | `bigint` | no | FK → `SupplierReturns.Id`, cascade delete on the header only — the aggregate is never edited, so the cascade only exists to let a draft header be dropped in a failed flow |
+| `LineNumber` | `int` | no | 1-based position within the return, for stable display |
+| `MedicineBatchId` | `bigint` | no | FK → `MedicineBatches.Id`; the batch must be in stock and belong to this supplier |
+| `Quantity` | `decimal(18,3)` | no | Units sent back; positive |
+| `UnitCost` | `decimal(18,2)` | no | Cost per unit at which the batch entered, the credit basis |
+| `CostValue` | `decimal(18,2)` | no | `Quantity × UnitCost`; non-negative |
+| `Notes` | `nvarchar(300)` | yes | Line-level notes |
+
+| Name | Definition |
+|---|---|
+| `PK_SupplierReturnLines` | Clustered primary key on `(Id)` |
+| `UX_SupplierReturnLines_Return_LineNumber` | Unique on `(SupplierReturnId, LineNumber)` |
+| `IX_SupplierReturnLines_MedicineBatchId` | The stock reports ask per batch |
+| `CK_SupplierReturnLines_LineNumber_Positive` | `LineNumber > 0` |
+| `CK_SupplierReturnLines_Quantity_Positive` | `Quantity > 0` |
+| `CK_SupplierReturnLines_UnitCost_NonNegative` | `UnitCost >= 0` |
+| `CK_SupplierReturnLines_CostValue_NonNegative` | `CostValue >= 0` |
+
+The rules a return cannot break live in the domain, not the schema: a batch must be **movable**
+(recalled and written-off batches are refused by `MedicineBatch`), must belong to the supplier on the
+header, and cannot take more than is on hand. The stock leaves in the same transaction as the return
+and its lines — one `SupplierReturn` movement row in `StockMovements` per batch, with the return
+number as the reference — so a return either left the shelf or never existed.
+
 ## 4. Invariants
 
 
@@ -950,6 +1017,7 @@ reconciliation query in §5 is the guard.
 | `20261015224739_MedicineTaxRatePrecision` | `Medicines.TaxRatePercent` to `decimal(5,2)` plus `CK_Medicines_TaxRate_Range`; no table is added |
 | `20261015225936_SalesReturnsAndStockDisposition` | `SalesReturns`, `SalesReturnLines`, the returned-quantity and returned-money columns on `SaleLines` and `SaleLineBatchAllocations` with their bounds, `RowVersion` on `Sales`, `SaleLines` and `SaleLineBatchAllocations`, and the cancellation audit columns on `Sales`; §3.7–3.9 and §3.12–3.13 |
 | `20261016050304_UsersRolesAndAuditLog` | `Users` and `AuditLogs` with their three indexes, the check constraints in §3.14–3.15, and `Users.RowVersion`; no existing table is touched, so a pharmacy that upgrades from `0.4.0` can apply it against live data without a rebuild |
+| `20261016072918_AddSupplierReturns` | `SupplierReturns` and `SupplierReturnLines` with the constraints in §3.16–3.17; no existing table is touched, so an installed `0.5.0` database reaches `0.6.0` by applying one migration |
 
 ```powershell
 dotnet ef migrations add <Name> --project src\MediStock.Infrastructure --startup-project src\MediStock.Desktop
@@ -969,7 +1037,8 @@ where the plan's shape is ambiguous.
 |---|---|
 | 4 | `SalesReturns` and `SalesReturnLines` — shipped, §3.12–3.13 |
 | 5 | `Users` and `AuditLogs` — shipped, §3.14–3.15. `Roles`, `UserRoles` and `ApplicationSettings` were **not** built; see the departure note below |
-| later | `SupplierReturns` and `SupplierReturnLines` (supplier returns and expiry write-offs, Milestone 4b in the roadmap); `Manufacturers` and `MedicineBarcodes` only if a pharmacy actually needs them |
+| 4b | `SupplierReturns` and `SupplierReturnLines` — shipped, §3.16–3.17 (supplier returns; expiry write-offs and recall holds move no rows — they are batch-status changes and ledger movements) |
+| later | `Manufacturers` and `MedicineBarcodes` only if a pharmacy actually needs them |
 
 Two departures from the plan's original list are deliberate and recorded in
 [ADR 0005](decisions/0005-no-purchase-orders-or-goods-receipts.md): Milestone 2 ships **no**
@@ -995,4 +1064,11 @@ by one atomic statement (§3.11), never `MAX(Number) + 1`. Milestone 4 added the
 above and added the `RowVersion` to `Sales` before writing the first status change (§3.7). Milestone 5
 added `Users` and `AuditLogs` and stopped there: no existing column was widened, renamed or dropped, so an
 installed `0.4.0` database reaches `0.5.0` by applying one migration, and the migration is the only thing
-that has to be trusted during an upgrade.
+that has to be trusted during an upgrade. Milestone 4b followed the same rule again: the supplier-return
+tables are additive, and `0.5.0` reaches `0.6.0` the same way — one migration, no rebuild.
+
+A fifth departure is recorded in [ADR 0011](decisions/0011-stock-corrections.md): there are no
+`StockAdjustments` or `StockWriteOffs` tables. Every correction — an adjustment, a write-off, a recall
+hold, a supplier return — is already one typed row in `StockMovements` plus a batch-status change, and
+each demands its own reason at the domain layer. A row that would duplicate the ledger cannot be
+justified by making it a table.
