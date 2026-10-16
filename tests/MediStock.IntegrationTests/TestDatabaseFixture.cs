@@ -1,5 +1,8 @@
+using MediStock.Application.Identity;
+using MediStock.Domain.Identity;
 using MediStock.Infrastructure;
 using MediStock.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,10 +32,47 @@ public sealed class TestDatabaseFixture : IAsyncLifetime
     public static string ReceiptFolder { get; } =
         Path.Combine(Path.GetTempPath(), "MediStock-Test-Receipts");
 
+    /// <summary>
+    /// Where the backup tests write. Absolute and empty to begin with, so a test can tell the file it just
+    /// took from anything already there, and so nothing is written to the folder a pharmacy uses for real
+    /// backups.
+    /// </summary>
+    public static string BackupFolder { get; } =
+        Path.Combine(Path.GetTempPath(), "MediStock-Test-Backups");
+
+    /// <summary>
+    /// The account the integration tests act as. Almost every test is about a business rule rather than
+    /// about permissions, so the fixture signs this administrator in for the whole run and the
+    /// authorization tests sign in as somebody else to prove a refusal.
+    /// </summary>
+    public const string AdministratorUserName = "integration.admin";
+
+    /// <summary>The administrator's password. Not a secret: it exists only inside a throwaway test database.</summary>
+    public const string AdministratorPassword = "Tessellate-Meadow-42";
+
     public string ConnectionString { get; } =
         Environment.GetEnvironmentVariable(ConnectionStringVariable) is { Length: > 0 } configured
             ? configured
             : DefaultConnectionString;
+
+    /// <summary>
+    /// The same server and the same credentials, pointed at another database. Used by the tests that need a
+    /// database of their own, so that whatever instance the run is configured for is the instance they use.
+    /// </summary>
+    public static string ConnectionStringFor(string database)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(database);
+
+        var builder = new SqlConnectionStringBuilder(
+            Environment.GetEnvironmentVariable(ConnectionStringVariable) is { Length: > 0 } configured
+                ? configured
+                : DefaultConnectionString)
+        {
+            InitialCatalog = database,
+        };
+
+        return builder.ConnectionString;
+    }
 
     /// <summary>The composition root under test, wired exactly as the desktop application wires it.</summary>
     public IServiceProvider Services => _provider
@@ -50,6 +90,8 @@ public sealed class TestDatabaseFixture : IAsyncLifetime
                 ["MediStock:SeedDevelopmentData"] = "false",
                 // Exported receipts are written here rather than into the tester's Documents folder.
                 ["MediStock:ReceiptFolder"] = ReceiptFolder,
+                // Backups are written here for the same reason.
+                ["MediStock:BackupFolder"] = BackupFolder,
             })
             .Build();
 
@@ -69,10 +111,44 @@ public sealed class TestDatabaseFixture : IAsyncLifetime
         // A fresh database created only from migrations is itself part of what is being verified.
         await db.Database.EnsureDeletedAsync();
         await db.Database.MigrateAsync();
+
+        await SignInAsAdministratorAsync();
+    }
+
+    /// <summary>
+    /// Creates the administrator this fixture runs as and signs them in, through the real first-run
+    /// bootstrap, so the session the catalogues read is the one the application would have. Without it
+    /// every catalogue call would be refused, which is the behaviour the authorization tests rely on.
+    /// </summary>
+    public async Task SignInAsAdministratorAsync()
+    {
+        await using var scope = _provider!.CreateAsyncScope();
+
+        var authentication = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
+        var result = await authentication.SetUpFirstAdministratorAsync(new UserDraft
+        {
+            UserName = AdministratorUserName,
+            DisplayName = "Integration Administrator",
+            Role = Role.Administrator,
+            Password = AdministratorPassword,
+            ConfirmPassword = AdministratorPassword,
+            Reason = "Created by the integration test fixture.",
+        });
+
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"The integration test fixture could not create its administrator: {result.Message}");
+        }
     }
 
     public async Task DisposeAsync()
     {
+        if (Directory.Exists(BackupFolder))
+        {
+            Directory.Delete(BackupFolder, recursive: true);
+        }
+
         if (_provider is null)
         {
             return;
@@ -98,6 +174,15 @@ public sealed class TestDatabaseFixture : IAsyncLifetime
 
         await using var scope = Services.CreateAsyncScope();
         return await work(scope.ServiceProvider);
+    }
+
+    /// <summary>The same scope, for work that needs nothing asynchronous — resolving a service, say.</summary>
+    public T InScope<T>(Func<IServiceProvider, T> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        using var scope = Services.CreateScope();
+        return work(scope.ServiceProvider);
     }
 
     public async Task InScopeAsync(Func<IServiceProvider, Task> work)

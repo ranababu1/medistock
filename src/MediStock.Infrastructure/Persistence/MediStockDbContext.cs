@@ -1,4 +1,5 @@
 using MediStock.Domain.Catalogue;
+using MediStock.Domain.Identity;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Purchasing;
 using MediStock.Domain.Sales;
@@ -48,6 +49,14 @@ public class MediStockDbContext : DbContext
     public DbSet<SalesReturnLine> SalesReturnLines => Set<SalesReturnLine>();
 
     public DbSet<InvoiceSequence> InvoiceSequences => Set<InvoiceSequence>();
+
+    public DbSet<User> Users => Set<User>();
+
+    /// <summary>
+    /// The audit trail. Rows are only ever added, never updated or deleted, and a query that writes to it is
+    /// a bug rather than a feature.
+    /// </summary>
+    public DbSet<AuditEntry> AuditLogs => Set<AuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

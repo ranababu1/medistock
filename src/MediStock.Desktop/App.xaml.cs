@@ -34,6 +34,12 @@ public partial class App : System.Windows.Application
         // be reported instead of silently exiting.
         ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown;
 
+        // Nothing below this line is allowed to take the process down without leaving a record. The
+        // log file is the thing a support call starts from, and the operator is told where it is.
+        DispatcherUnhandledException += OnUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
         try
         {
             _host = BuildHost(e.Args);
@@ -49,8 +55,18 @@ public partial class App : System.Windows.Application
 
             await PrepareDatabaseAsync(options).ConfigureAwait(true);
 
+            // Nobody is signed in yet — the seeder signs out deliberately — so the first window asks who
+            // this is. Everything the shell offers is decided from that answer.
+            if (!ShowSignIn(null))
+            {
+                Shutdown(0);
+                return;
+            }
+
             var shell = _host.Services.GetRequiredService<ShellViewModel>();
             var window = new ShellWindow { DataContext = shell };
+
+            shell.SignOutRequested += (_, _) => ReturnToSignIn(window, shell);
 
             MainWindow = window;
             ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose;
@@ -98,6 +114,7 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<INavigationService, NavigationService>();
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<ShellViewModel>();
+        builder.Services.AddTransient<SignInViewModel>();
         builder.Services.AddTransient<DashboardViewModel>();
         builder.Services.AddTransient<MedicinesViewModel>();
         builder.Services.AddTransient<SuppliersViewModel>();
@@ -107,6 +124,7 @@ public partial class App : System.Windows.Application
         builder.Services.AddTransient<SalesHistoryViewModel>();
         builder.Services.AddTransient<ReturnsViewModel>();
         builder.Services.AddTransient<ReportsViewModel>();
+        builder.Services.AddTransient<UsersSettingsViewModel>();
 
         return builder.Build();
     }
@@ -156,6 +174,36 @@ public partial class App : System.Windows.Application
         }
     }
 
+    /// <summary>
+    /// Presents the sign-in window. Returns true once somebody is signed in, and false when the operator
+    /// closed the window instead — which means the application should exit rather than open a shell that
+    /// nobody is allowed to use.
+    /// </summary>
+    private bool ShowSignIn(Window? owner)
+    {
+        var viewModel = _host!.Services.GetRequiredService<SignInViewModel>();
+        return SignInWindow.Ask(viewModel, owner);
+    }
+
+    /// <summary>
+    /// Sends the application back to the sign-in window after a sign-out. The shell is only hidden, not
+    /// closed, so the operator keeps their place on the navigation rail if they sign back in.
+    /// </summary>
+    private void ReturnToSignIn(Window shellWindow, ShellViewModel shell)
+    {
+        shellWindow.Hide();
+
+        if (ShowSignIn(shellWindow))
+        {
+            shellWindow.Show();
+            shellWindow.Activate();
+            return;
+        }
+
+        _logger?.LogInformation("Sign-in window closed without a sign-in; shutting down.");
+        shellWindow.Close();
+    }
+
     private void ReportStartupFailure(Exception exception)
     {
         _logger?.LogCritical(exception, "MediStock failed to start.");
@@ -169,6 +217,42 @@ public partial class App : System.Windows.Application
             MessageBoxImage.Error);
 
         Shutdown(1);
+    }
+
+    /// <summary>
+    /// The last line of defence for the interface thread. An error nobody caught means the screen may no
+    /// longer describe the database, so the application stops rather than carrying on with numbers nobody
+    /// can trust — but it stops having written the stack to the log and said so, instead of vanishing.
+    /// </summary>
+    private void OnUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        _logger?.LogCritical(e.Exception, "An unhandled error stopped the interface.");
+
+        MessageBox.Show(
+            $"MediStock has to close because of an unexpected error.{Environment.NewLine}{Environment.NewLine}" +
+            $"{e.Exception.Message}{Environment.NewLine}{Environment.NewLine}" +
+            $"Nothing after this point was saved. The details were written to:{Environment.NewLine}" +
+            $"{FileLoggerProvider.CurrentLogFile}",
+            "MediStock",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+
+        e.Handled = true;
+        Shutdown(1);
+    }
+
+    /// <summary>
+    /// A failure on a thread the interface does not own cannot be recovered from: the process is going down
+    /// either way, so all that is left to do is to make sure the log says why.
+    /// </summary>
+    private void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e) =>
+        _logger?.LogCritical(e.ExceptionObject as Exception, "An unhandled error stopped a background thread.");
+
+    /// <summary>A fault nobody awaited is reported when it is collected, which is late but is still a record.</summary>
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        _logger?.LogError(e.Exception, "A background task failed and nobody was waiting for the result.");
+        e.SetObserved();
     }
 }
 

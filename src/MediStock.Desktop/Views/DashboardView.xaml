@@ -237,7 +237,7 @@
                                       MaxHeight="260">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Invoice" Binding="{Binding InvoiceNumber}" Width="Auto" />
-                                    <DataGridTextColumn Header="Sold at" Binding="{Binding SoldAtUtc, StringFormat='{}{0:dd/MM HH:mm}', ConverterCulture=en-GB}" Width="Auto" />
+                                    <DataGridTextColumn Header="Sold at" Binding="{Binding SoldAtUtc, Converter={StaticResource InstantText}, ConverterParameter='dd/MM HH:mm'}" Width="Auto" />
                                     <DataGridTextColumn Header="Customer" Binding="{Binding CustomerName}" Width="*" />
                                     <DataGridTextColumn Header="Lines" Binding="{Binding Lines.Count}" Width="Auto" />
                                     <DataGridTextColumn Header="Total" Binding="{Binding Total, StringFormat={}{0:N2}}" Width="Auto" />
@@ -301,13 +301,17 @@
                                         Margin="0,0,10,8" Command="{Binding OpenPurchasesCommand}" />
                                 <Button Content="Reports" Style="{StaticResource SecondaryButton}"
                                         Margin="0,0,10,8" Command="{Binding OpenReportsCommand}" />
+                                <Button Content="Returns" Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenReturnsCommand}" />
                                 <Button Content="Inventory" Style="{StaticResource SecondaryButton}"
                                         Margin="0,0,10,8" Command="{Binding OpenInventoryCommand}" />
+                                <Button Content="Users &amp; settings" Style="{StaticResource SecondaryButton}"
+                                        Margin="0,0,10,8" Command="{Binding OpenSettingsCommand}" />
                             </WrapPanel>
 
                             <Border Style="{StaticResource Divider}" Margin="0,6,0,10" />
 
-                            <TextBlock Text="Planned for later milestones: sale returns, expiry write-offs, and report exports."
+                            <TextBlock Text="Sale returns, expiry and low-stock lists, and CSV exports are on the Reports, Returns, and Inventory screens. Accounts, backup, and diagnostics live under Users &amp; settings."
                                        Style="{StaticResource CaptionText}"
                                        TextWrapping="Wrap" />
                         </StackPanel>

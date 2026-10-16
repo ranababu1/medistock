@@ -1,8 +1,12 @@
+using System.Globalization;
 using System.Linq.Expressions;
 using MediStock.Application.Common;
+using MediStock.Application.Identity;
 using MediStock.Application.Suppliers;
 using MediStock.Domain.Common;
+using MediStock.Domain.Identity;
 using MediStock.Domain.Suppliers;
+using MediStock.Infrastructure.Identity;
 using MediStock.Infrastructure.Persistence;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -38,16 +42,30 @@ internal sealed class EfSupplierCatalog : ISupplierCatalog
 
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
+    private readonly IUserSession _session;
     private readonly ILogger<EfSupplierCatalog> _logger;
 
     public EfSupplierCatalog(
         IDbContextFactory<MediStockDbContext> factory,
         IClock clock,
+        IUserSession session,
         ILogger<EfSupplierCatalog> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>
+    /// Adds an audit row naming the signed-in person as the actor. Supplier records carry no free-text
+    /// operator box, so whoever is signed in is who changed the supplier.
+    /// </summary>
+    private AuditEntry Stage(MediStockDbContext db, AuditRecord record)
+    {
+        var (actor, userId) = AuditJournal.ActorOf(_session);
+
+        return AuditJournal.Stage(db, record, actor, userId);
     }
 
     public async Task<IReadOnlyList<SupplierDto>> SearchAsync(
@@ -135,6 +153,17 @@ internal sealed class EfSupplierCatalog : ISupplierCatalog
 
         db.Suppliers.Add(supplier);
 
+        Stage(
+            db,
+            new AuditRecord(
+                AuditAction.SupplierCreated,
+                $"Supplier {supplier.Name} was added.")
+            {
+                EntityType = "Supplier",
+                EntityId = supplier.Id.ToString(CultureInfo.InvariantCulture),
+                Detail = supplier.Phone,
+            });
+
         try
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -177,6 +206,14 @@ internal sealed class EfSupplierCatalog : ISupplierCatalog
             return OperationResult<SupplierDto>.Fail(ex.Message);
         }
 
+        Stage(
+            db,
+            new AuditRecord(AuditAction.SupplierUpdated, $"Supplier {supplier.Name} was edited.")
+            {
+                EntityType = "Supplier",
+                EntityId = supplier.Id.ToString(CultureInfo.InvariantCulture),
+            });
+
         try
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -215,6 +252,17 @@ internal sealed class EfSupplierCatalog : ISupplierCatalog
         {
             supplier.Deactivate(_clock.UtcNow);
         }
+
+        Stage(
+            db,
+            new AuditRecord(
+                isActive ? AuditAction.SupplierReactivated : AuditAction.SupplierDeactivated,
+                $"Supplier {supplier.Name} was {(isActive ? "reactivated" : "deactivated")}.")
+            {
+                EntityType = "Supplier",
+                EntityId = supplier.Id.ToString(CultureInfo.InvariantCulture),
+                Detail = isActive ? null : "Past purchases keep referring to it, so the record itself is kept.",
+            });
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

@@ -1,8 +1,12 @@
+using System.Globalization;
 using System.Linq.Expressions;
 using MediStock.Application.Catalogue;
 using MediStock.Application.Common;
+using MediStock.Application.Identity;
 using MediStock.Domain.Catalogue;
 using MediStock.Domain.Common;
+using MediStock.Domain.Identity;
+using MediStock.Infrastructure.Identity;
 using MediStock.Infrastructure.Persistence;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -35,16 +39,31 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
 
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
+    private readonly IUserSession _session;
     private readonly ILogger<EfMedicineCatalog> _logger;
 
     public EfMedicineCatalog(
         IDbContextFactory<MediStockDbContext> factory,
         IClock clock,
+        IUserSession session,
         ILogger<EfMedicineCatalog> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>
+    /// Adds an audit row naming the signed-in person as the actor. Medicine records carry no free-text
+    /// operator box, so unlike a till or a receiving note there is nothing to reconcile: whoever is signed
+    /// in is who changed the catalogue.
+    /// </summary>
+    private AuditEntry Stage(MediStockDbContext db, AuditRecord record)
+    {
+        var (actor, userId) = AuditJournal.ActorOf(_session);
+
+        return AuditJournal.Stage(db, record, actor, userId);
     }
 
     public async Task<IReadOnlyList<MedicineDto>> SearchAsync(
@@ -130,6 +149,17 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
 
         db.Medicines.Add(medicine);
 
+        Stage(
+            db,
+            new AuditRecord(
+                AuditAction.MedicineCreated,
+                $"Medicine {medicine.DisplayName} was added to the catalogue.")
+            {
+                EntityType = "Medicine",
+                EntityId = medicine.Barcode,
+                Detail = $"{medicine.BrandName} / {medicine.GenericName}, {medicine.Strength} {medicine.DosageForm}.",
+            });
+
         try
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -163,6 +193,10 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
             return OperationResult<MedicineDto>.Fail($"Medicine {medicineId} no longer exists.");
         }
 
+        // Read before the edit: the tax rate decides what the customer pays, so a change to it is a price
+        // change and the trail has to show the before and after.
+        var previousTaxRate = medicine.TaxRatePercent;
+
         try
         {
             draft.ApplyTo(medicine, _clock.UtcNow);
@@ -171,6 +205,27 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
         {
             return OperationResult<MedicineDto>.Fail(ex.Message);
         }
+
+        var taxMoved = previousTaxRate != medicine.TaxRatePercent;
+
+        Stage(
+            db,
+            new AuditRecord(
+                taxMoved ? AuditAction.PriceChanged : AuditAction.MedicineUpdated,
+                taxMoved
+                    ? $"The tax rate on {medicine.DisplayName} was changed."
+                    : $"Medicine {medicine.DisplayName} was edited.")
+            {
+                EntityType = "Medicine",
+                EntityId = medicine.Barcode,
+                Detail = taxMoved
+                    ? string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Tax rate {0:0.####}% → {1:0.####}%.",
+                        previousTaxRate,
+                        medicine.TaxRatePercent)
+                    : null,
+            });
 
         try
         {
@@ -210,6 +265,19 @@ internal sealed class EfMedicineCatalog : IMedicineCatalog
         {
             medicine.Deactivate(_clock.UtcNow);
         }
+
+        Stage(
+            db,
+            new AuditRecord(
+                isActive ? AuditAction.MedicineReactivated : AuditAction.MedicineDeactivated,
+                $"Medicine {medicine.DisplayName} was {(isActive ? "reactivated" : "deactivated")}.")
+            {
+                EntityType = "Medicine",
+                EntityId = medicine.Barcode,
+                Detail = isActive
+                    ? null
+                    : "Historical sales and batches keep referring to it, so the record itself is kept.",
+            });
 
         try
         {

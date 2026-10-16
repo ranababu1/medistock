@@ -1,8 +1,12 @@
+using System.Globalization;
 using MediStock.Application.Common;
+using MediStock.Application.Identity;
 using MediStock.Application.Sales;
 using MediStock.Domain.Common;
+using MediStock.Domain.Identity;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Sales;
+using MediStock.Infrastructure.Identity;
 using MediStock.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -36,6 +40,7 @@ internal sealed class EfSaleReturnCatalog : ISaleReturnCatalog
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
     private readonly ISaleCatalog _sales;
+    private readonly IUserSession _session;
     private readonly EfInvoiceNumberAllocator _invoiceNumbers;
     private readonly ILogger<EfSaleReturnCatalog> _logger;
 
@@ -43,12 +48,14 @@ internal sealed class EfSaleReturnCatalog : ISaleReturnCatalog
         IDbContextFactory<MediStockDbContext> factory,
         IClock clock,
         ISaleCatalog sales,
+        IUserSession session,
         EfInvoiceNumberAllocator invoiceNumbers,
         ILogger<EfSaleReturnCatalog> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _sales = sales ?? throw new ArgumentNullException(nameof(sales));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
         _invoiceNumbers = invoiceNumbers ?? throw new ArgumentNullException(nameof(invoiceNumbers));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -143,6 +150,23 @@ internal sealed class EfSaleReturnCatalog : ISaleReturnCatalog
                             reference: Reference(salesReturn.Id),
                             nowUtc: now));
                     }
+
+                    var (actor, actorId) = OperatorOf(salesReturn.ReturnedBy);
+
+                    AuditJournal.Stage(
+                        db,
+                        new AuditRecord(
+                            AuditAction.ReturnRecorded,
+                            $"Return {salesReturn.ReturnNumber} was recorded against invoice {sale.InvoiceNumber} "
+                            + $"for {salesReturn.Lines.Count} line(s).")
+                        {
+                            EntityType = "SalesReturn",
+                            EntityId = salesReturn.ReturnNumber,
+                            Reason = salesReturn.Reason,
+                            Detail = DescribeReturn(salesReturn, restocked),
+                        },
+                        actor,
+                        actorId);
 
                     await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                     await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -321,6 +345,26 @@ internal sealed class EfSaleReturnCatalog : ISaleReturnCatalog
                     // already cancelled. The rowversion on the invoice makes that decision conditional.
                     sale.Cancel(cancelledBy, reason, now);
 
+                    var (actor, actorId) = OperatorOf(cancelledBy);
+
+                    AuditJournal.Stage(
+                        db,
+                        new AuditRecord(
+                            AuditAction.SaleCancelled,
+                            $"Invoice {sale.InvoiceNumber} was cancelled.")
+                        {
+                            EntityType = "Sale",
+                            EntityId = sale.InvoiceNumber,
+                            Reason = reason,
+                            Detail = string.Format(
+                                CultureInfo.InvariantCulture,
+                                "Total {0:0.00}, {1} line(s).",
+                                sale.Total,
+                                sale.Lines.Count),
+                        },
+                        actor,
+                        actorId);
+
                     await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                     await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -394,6 +438,42 @@ internal sealed class EfSaleReturnCatalog : ISaleReturnCatalog
     }
 
     private static string Reference(int salesReturnId) => $"RET-{salesReturnId}";
+
+    /// <summary>
+    /// What was returned and where the restocked part went, for the audit detail. The disposition matters more
+    /// than the quantity: "5 units came back and were quarantined" and "5 units came back and were put back on
+    /// the shelf" are different decisions by different people.
+    /// </summary>
+    private static string DescribeReturn(SalesReturn salesReturn, IReadOnlyList<SalesReturnLine> restocked)
+        => string.Format(
+            CultureInfo.InvariantCulture,
+            "Refund {0:0.00} by {1}; {2:0.###} unit(s) returned, of which {3:0.###} went back into sellable stock.",
+            salesReturn.RefundTotal,
+            salesReturn.RefundMethod,
+            salesReturn.ReturnedQuantity,
+            restocked.Sum(line => line.Quantity));
+
+    /// <summary>
+    /// The name a stock movement is signed with, and the account it belongs to when that name really is the
+    /// signed-in one. The operator box is free text, so the two can differ; the trail records what was typed
+    /// and only links an account when it matches.
+    /// </summary>
+    private (string Actor, int? UserId) OperatorOf(string? operatorName)
+    {
+        var fallback = AuditJournal.ActorOf(_session);
+
+        if (string.IsNullOrWhiteSpace(operatorName))
+        {
+            return fallback;
+        }
+
+        var name = operatorName.Trim();
+        var current = _session.CurrentUser;
+
+        return (name, current is not null && string.Equals(current.UserName, name, StringComparison.OrdinalIgnoreCase)
+            ? current.Id
+            : null);
+    }
 
     /// <summary>
     /// Loads an invoice with everything a return or a cancellation has to check: its lines and what each

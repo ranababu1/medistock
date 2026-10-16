@@ -1,8 +1,12 @@
+using System.Globalization;
 using MediStock.Application.Common;
+using MediStock.Application.Identity;
 using MediStock.Application.Sales;
 using MediStock.Domain.Common;
+using MediStock.Domain.Identity;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Sales;
+using MediStock.Infrastructure.Identity;
 using MediStock.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -38,17 +42,20 @@ internal sealed class EfSaleCatalog : ISaleCatalog
 {
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
+    private readonly IUserSession _session;
     private readonly EfInvoiceNumberAllocator _invoiceNumbers;
     private readonly ILogger<EfSaleCatalog> _logger;
 
     public EfSaleCatalog(
         IDbContextFactory<MediStockDbContext> factory,
         IClock clock,
+        IUserSession session,
         EfInvoiceNumberAllocator invoiceNumbers,
         ILogger<EfSaleCatalog> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
         _invoiceNumbers = invoiceNumbers ?? throw new ArgumentNullException(nameof(invoiceNumbers));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -156,6 +163,29 @@ internal sealed class EfSaleCatalog : ISaleCatalog
                         reference: Reference(sale.Id),
                         nowUtc: now));
                 }
+
+                // Staged before the commit so the row and the sale are one unit: an audit trail that could
+                // miss a completed sale would be worse than none.
+                var (actor, actorId) = OperatorOf(sale.SoldBy);
+                var saleTotals = SaleTotals.From(basket.Lines);
+
+                AuditJournal.Stage(
+                    db,
+                    new AuditRecord(
+                        AuditAction.SaleCompleted,
+                        $"Sale {sale.InvoiceNumber} was completed for {sale.Lines.Count} line(s).")
+                    {
+                        EntityType = "Sale",
+                        EntityId = sale.InvoiceNumber,
+                        Detail = string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Total {0:0.00} across {1} batch allocation(s), paid by {2}.",
+                            saleTotals.Total,
+                            basket.Promises.Count,
+                            DescribePayments(request)),
+                    },
+                    actor,
+                    actorId);
 
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -480,6 +510,40 @@ internal sealed class EfSaleCatalog : ISaleCatalog
             cancellationToken);
 
     private static string Reference(int saleId) => $"SALE-{saleId}";
+
+    /// <summary>
+    /// The payments of a basket, for the audit detail. Cash amounts only: the reference a card payment
+    /// carries can be a masked number, and the trail has no business holding one.
+    /// </summary>
+    private static string DescribePayments(SaleDraft request)
+        => request.Payments.Count == 0
+            ? "no payment recorded"
+            : string.Join(
+                ", ",
+                request.Payments.Select(payment =>
+                    string.Format(CultureInfo.InvariantCulture, "{0} {1:0.00}", payment.Method, payment.Amount)));
+
+    /// <summary>
+    /// The name a stock movement is signed with, and the account it belongs to when that name really is the
+    /// signed-in one. The till is a free-text box, so the two can differ; the trail records what was typed
+    /// and only links an account when it matches.
+    /// </summary>
+    private (string Actor, int? UserId) OperatorOf(string? operatorName)
+    {
+        var fallback = AuditJournal.ActorOf(_session);
+
+        if (string.IsNullOrWhiteSpace(operatorName))
+        {
+            return fallback;
+        }
+
+        var name = operatorName.Trim();
+        var current = _session.CurrentUser;
+
+        return (name, current is not null && string.Equals(current.UserName, name, StringComparison.OrdinalIgnoreCase)
+            ? current.Id
+            : null);
+    }
 
     /// <summary>Loads everything an invoice and its receipt need.</summary>
     private static IQueryable<Sale> Query(MediStockDbContext db) => Load(db.Sales);

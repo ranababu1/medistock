@@ -131,6 +131,9 @@ a complete list of problems in one pass instead of one exception at a time.
 | Returns | `EfSaleReturnCatalog`, `SalesReturnProjection` |
 | Reporting | `EfReportQueries`, `CsvReportExporter` |
 | Dashboard | `EfDashboardQueries` |
+| Identity | `EfUserDirectory`, `EfAuthenticationService`, `Pbkdf2PasswordHasher` |
+| Audit | `AuditJournal`, `EfAuditTrail` |
+| Operations | `SqlServerBackupService` |
 | Diagnostics | `SqlServerDatabaseHealthCheck` |
 | Time | `SystemClock` |
 | Composition | `DependencyInjection`, `UnitOfWorkRetry` |
@@ -142,12 +145,20 @@ a complete list of problems in one pass instead of one exception at a time.
 `MEDISTOCK_CONNECTION` environment variable → `ConnectionStrings:MediStock` configuration.
 `LogDatabaseTarget` logs server/database names with no credentials.
 
+`ConfigureDatabase` hands EF Core a connection string with `Multiple Active Result Sets` forced **off**,
+whatever the file, environment or developer typed. MARS is what makes a `DbContext` tolerate two
+statements in flight at once, and this application is built on an `IDbContextFactory` precisely so that
+never happens by accident; the strip means a connection string copied out of SSMS cannot reintroduce it.
+Leave the setting on in the files (`appsettings.json`, the dev scripts, the test fixture): the value there
+documents a connection that works in those tools, and the provider never sees it.
+
 ### 3.4 Desktop — `MediStock.Desktop`
 
 ```plaintext
 Desktop/
 ├── App.xaml, App.xaml.cs              composition root: host, DI, migration + seed on startup
 ├── appsettings*.json                  layered configuration
+├── ProductInfo.cs                     name, version and summary for the shell and the log header
 ├── Themes/Theme.xaml                  colours, brushes, control styles
 ├── Converters/CommonConverters.cs     value converters for XAML bindings
 ├── Logging/FileLoggerProvider.cs      rolling daily file log
@@ -158,11 +169,13 @@ Desktop/
 │                                      PurchaseEditorViewModel, PurchaseLineEditorViewModel,
 │                                      InventoryViewModel, NewSaleViewModel, CartLineViewModel,
 │                                      SalesHistoryViewModel, ReturnsViewModel, ReportsViewModel,
-│                                      PlaceholderViewModel
+│                                      SignInViewModel, UsersSettingsViewModel,
+│                                      AccountEditorViewModel, PlaceholderViewModel
 └── Views/                             ShellWindow, DashboardView, MedicinesView, SuppliersView,
                                        PurchasesView, InventoryView, NewSaleView,
                                        SalesHistoryView, ReturnsView, ReportsView,
-                                       TextPromptWindow, PlaceholderView
+                                       UsersSettingsView, SignInWindow, TextPromptWindow,
+                                       PlaceholderView
 ```
 
 - **Composition root.** `App.OnStartup` builds a `HostApplicationBuilder`, calls
@@ -181,6 +194,14 @@ Desktop/
 - **Logging.** `FileLoggerProvider` writes to `%LOCALAPPDATA%\MediStock\logs\medistock-yyyyMMdd.log`
   in addition to the console, so a support engineer can read what happened on a user's PC. Logs
   never contain credentials or unnecessary personal data.
+- **Sign-in before the shell.** `App.OnStartup` resolves the shell but does not show it until a modal
+  `SignInWindow` has returned a signed-in `IUserSession`. `ReturnToSignIn` reopens that dialog when the
+  session ends, and closing the dialog without signing in exits the process rather than leaving a shell
+  that has no identity behind it.
+- **Global exception handlers.** `DispatcherUnhandledException`, `AppDomain.UnhandledException` and
+  `TaskScheduler.UnobservedTaskException` are all wired, log the full detail, and show one generic dialog
+  instead of letting the process die with no trace. A binding mistake that would otherwise kill the shell
+  therefore reaches the log and the person holding the mouse.
 
 ## 4. Cross-cutting behaviour
 
@@ -253,11 +274,11 @@ not merely that another till was busy.
 
 Two details keep that loop honest. The transaction is opened *inside* the unit of work, so a failed
 attempt is rolled back by disposing it and the next attempt starts clean — the retry never rejoins a
-half-written transaction. And because the connection enables MARS, EF Core disables savepoints and logs
-`Savepoints are disabled because Multiple Active Result Sets (MARS) is enabled` whenever it opens one;
-that warning is expected. It is precisely the reason the unit of work is retried as a whole rather than
-resumed: after a failed attempt the application, not EF Core, is responsible for rolling back, and
-disposing the transaction does it.
+half-written transaction. And because the connection has MARS off (§3.3), EF Core keeps savepoints
+enabled and the `Savepoints are disabled because Multiple Active Result Sets (MARS) is enabled` line no
+longer appears for every transaction that opens one. The unit of work is still retried as a whole rather
+than resumed, because a concurrency conflict is discovered between a read and a write and only the caller
+knows how to read again.
 
 **Loading an invoice.** A sale aggregate carries three collections — lines (with their batch
 allocations), payments and returns (with their lines) — so it is loaded with `AsSplitQuery()`: one round

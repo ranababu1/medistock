@@ -80,6 +80,7 @@ public class MigrationTests
         Assert.Equal(
             new[]
             {
+                "AuditLogs",
                 "InvoiceSequences",
                 "MedicineBatches",
                 "Medicines",
@@ -93,6 +94,7 @@ public class MigrationTests
                 "SalesReturns",
                 "StockMovements",
                 "Suppliers",
+                "Users",
                 "__EFMigrationsHistory",
             },
             tables);

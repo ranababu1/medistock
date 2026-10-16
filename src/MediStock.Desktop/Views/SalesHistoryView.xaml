@@ -160,7 +160,7 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Invoice" Binding="{Binding InvoiceNumber}" Width="Auto" />
                             <DataGridTextColumn Header="Business date" Binding="{Binding BusinessDate, StringFormat=yyyy-MM-dd}" Width="Auto" />
-                            <DataGridTextColumn Header="Sold at" Binding="{Binding SoldAtUtc, StringFormat='{}{0:dd/MM/yyyy HH:mm}', ConverterCulture=en-GB}" Width="Auto" />
+                            <DataGridTextColumn Header="Sold at" Binding="{Binding SoldAtUtc, Converter={StaticResource InstantText}}" Width="Auto" />
                             <DataGridTextColumn Header="Customer" Binding="{Binding CustomerName}" Width="*" />
                             <DataGridTextColumn Header="Served by" Binding="{Binding SoldBy}" Width="Auto" />
                             <DataGridTextColumn Header="Lines" Binding="{Binding Lines.Count}" Width="Auto" />

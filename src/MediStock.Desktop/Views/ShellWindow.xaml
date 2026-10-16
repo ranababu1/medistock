@@ -96,11 +96,22 @@
                     <TextBlock Height="1" Background="#22FFFFFF" Margin="0,0,0,12" />
                     <TextBlock Text="{Binding OperatorName}"
                                FontSize="12"
+                               FontWeight="SemiBold"
                                Foreground="White"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding OperatorRoleText}"
+                               FontSize="11"
+                               Foreground="{StaticResource SidebarMutedBrush}"
                                TextTrimming="CharacterEllipsis" />
                     <TextBlock FontSize="11" Foreground="{StaticResource SidebarMutedBrush}">
                         <Run Text="Local time zone: " /><Run Text="{Binding TimeZoneText, Mode=OneWay}" />
                     </TextBlock>
+                    <Button Content="Sign out"
+                            Style="{StaticResource SidebarLinkButton}"
+                            HorizontalAlignment="Left"
+                            Margin="0,10,0,0"
+                            Command="{Binding SignOutCommand}"
+                            ToolTip="Leave the till unattended safely; every sign-out is audited" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -123,6 +134,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
@@ -132,7 +144,22 @@
                         <TextBlock Text="{Binding BusinessDateText}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
 
-                    <Border Grid.Column="1"
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="0,0,14,0"
+                                ToolTip="Who is signed in, and which set of permissions is in force">
+                        <TextBlock Text="{Binding OperatorName}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" />
+                        <TextBlock Text="{Binding OperatorRoleText}"
+                                   FontSize="12"
+                                   Margin="6,0,0,0"
+                                   Foreground="{StaticResource TextSecondaryBrush}" />
+                    </StackPanel>
+
+                    <Border Grid.Column="2"
                             VerticalAlignment="Center"
                             Margin="0,0,14,0"
                             Padding="12,6"
@@ -160,7 +187,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Button Grid.Column="2"
+                    <Button Grid.Column="3"
                             Content="Test connection"
                             Style="{StaticResource SecondaryButton}"
                             Command="{Binding CheckDatabaseCommand}"

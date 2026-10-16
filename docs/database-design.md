@@ -1,10 +1,10 @@
 # MediStock database design
 
-The schema currently implements the catalogue, supplier, inventory and point-of-sale foundations
-(Milestones 0–3). Returns, identity and audit tables are described in [roadmap.md](roadmap.md) and
-will be added by later migrations.
+The schema now covers the whole of the first release: catalogue, suppliers, inventory, point of sale,
+returns and stock disposition, and the accounts and audit trail that say who did it. Milestones 0–5 have
+shipped; [roadmap.md](roadmap.md) says what is left.
 
-Everything in this document is the **current** state of `20261015224739_MedicineTaxRatePrecision`. Schema
+Everything in this document is the **current** state of `20261016050304_UsersRolesAndAuditLog`. Schema
 changes happen only through new EF Core migrations.
 
 ---
@@ -561,7 +561,94 @@ within the returnable amount, and that the money is within what was charged — 
 enforced by `SalesReturn.Record` (invariants I30–I33), then verified by the reconciliation queries in
 §5.
 
+### 3.14 `Users`
+
+One row per person who may sign in. There is no `Roles`, `UserRoles` or `ApplicationSettings` table: a role
+is one of four fixed values, so it is a column rather than a row that could be renumbered or deleted, and the
+permissions that role grants are compiled in rather than stored. See
+[ADR 0009](decisions/0009-users-roles-and-the-audit-trail.md).
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | no | PK |
+| `UserName` | `nvarchar(64)` | no | As typed and as shown; may contain spaces or mixed case |
+| `NormalisedUserName` | `nvarchar(64)` | no | Folded form used only by the unique index; set by the aggregate, never by a caller |
+| `DisplayName` | `nvarchar(120)` | no | What the top bar and the audit trail show |
+| `Role` | `int` | no | `0`=Administrator, `1`=Pharmacist, `2`=Cashier, `3`=InventoryOperator |
+| `IsActive` | `bit` | no | Defaults to `1`; `0` is the only way an account is retired |
+| `PasswordHashEncoded` | `nvarchar(512)` | no | `pbkdf2-sha256$<iterations>$<salt>$<hash>`, Base64; the iteration count travels with the row |
+| `CreatedAtUtc` | `datetimeoffset(3)` | no | |
+| `UpdatedAtUtc` | `datetimeoffset(3)` | no | |
+| `LastSignedInAtUtc` | `datetimeoffset(3)` | yes | Null until the first successful sign-in |
+| `RowVersion` | `rowversion` | yes | Concurrency token, as on `Purchases` |
+
+| Name | Definition |
+|---|---|
+| `PK_Users` | Clustered primary key on `(Id)` |
+| `CK_Users_Role_Defined` | `Role BETWEEN 0 AND 3` |
+| `CK_Users_PasswordHash_Encoded` | `PasswordHashEncoded LIKE 'pbkdf2-sha256$%'` |
+| `UX_Users_NormalisedUserName` | Unique on `(NormalisedUserName)` |
+
+An unsigned `int` between 0 and 3 is exactly the enum's range, so `CK_Users_Role_Defined` cannot be defeated
+by a value the application never produces; it exists for the case where something else writes the row.
+`CK_Users_PasswordHash_Encoded` guards the *shape* of the hash, not its secrecy: an empty string can never
+match a password, but it would make `PasswordHash.Parse` throw while a row is being read, which turns one bad
+row into a screen that will not open.
+
+There is **no foreign key from any business table to `Users`**, and no `Users` row is ever deleted. A sale,
+a return or a stock adjustment keeps the operator's *name*, so a reprint in five years reads correctly even
+if the account is long gone; the audit trail keeps the name *and* the identifier, so a row can still be
+joined back to an account that survives. Deleting an account is therefore not something the application can
+do — deactivation removes the ability to sign in and nothing else.
+
+Three rules about who an account may be changed by are **not** expressible here and live in
+`EfUserDirectory`, each returning the same refusal whether the target exists or not: an administrator cannot
+change their own role, reset their own password, or deactivate the account they are signed in with
+(invariants I45–I46).
+
+### 3.15 `AuditLogs`
+
+One row per thing somebody did that a pharmacy may later have to explain: a role change, a price change, a
+stock adjustment, a purchase correction, a cancellation, a return, a backup or a restore. The type is called
+`AuditEntry` because it *is* one entry; a type called `AuditLog` would suggest it held the whole log.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `Id` | `bigint IDENTITY` | no | PK; `bigint` because the table only ever grows |
+| `Action` | `int` | no | The `AuditAction` value, e.g. `PriceChanged`, `RestoreCompleted` |
+| `Actor` | `nvarchar(120)` | no | The name that was signed in with; `system` for a refused sign-in |
+| `UserId` | `int` | yes | The account that acted, when there was one; **not** a foreign key |
+| `Summary` | `nvarchar(400)` | no | The sentence shown in the audit tab, e.g. `Account "anita" moved from Cashier to Pharmacist.` |
+| `EntityType` | `nvarchar(60)` | yes | `Medicine`, `Sale`, `SupplierReturn`… |
+| `EntityId` | `nvarchar(60)` | yes | The record it happened to, as text, so no row is locked by an audit write |
+| `Reason` | `nvarchar(400)` | yes | Required for the actions that demand one, null otherwise |
+| `Detail` | `nvarchar(2000)` | yes | Before/after values, or a file path |
+| `OccurredAtUtc` | `datetimeoffset(3)` | no | UTC instant; the screen renders it in local time |
+
+| Name | Definition |
+|---|---|
+| `PK_AuditLogs` | Clustered primary key on `(Id)` |
+| `CK_AuditLogs_Summary_NotEmpty` | `LEN(LTRIM(RTRIM([Summary]))) > 0` |
+| `IX_AuditLogs_OccurredAtUtc` | The audit tab asks newest-first on almost every visit |
+| `IX_AuditLogs_Entity` | On `(EntityType, EntityId)` — "what happened to this invoice" |
+| `IX_AuditLogs_Actor` | "what has this account been doing" |
+
+Three deliberate choices. **No foreign key** to `Users`: the row must survive whatever happens to the
+account, and a refused sign-in has no account to point at, so `UserId` is a plain nullable column and
+`EntityId` is text rather than a reference to another table's key. **No update or delete path** exists
+anywhere in the source, which is what makes the trail append-only in practice — the database cannot enforce
+that, so it is a property of the code and is reviewed as one. And **nothing sensitive is stored**: every
+row passes through one funnel, `AuditEntry.Record`, which scrubs anything shaped like a password, key or
+connection string out of the free text with `SensitiveText.Scrub` *before* truncating to the column limits,
+so a secret cannot be revealed by the truncation either.
+
+The trail is written on the same `DbContext` and inside the same transaction as the change it describes,
+which is why an audit row for a refused sign-in — the one action that changes nothing — is the only one
+written on a context of its own. If the change rolls back, the row goes with it: the trail states what
+happened, not what was attempted.
+
 ## 4. Invariants
+
 
 These must hold after every committed transaction. Each is enforced by the constraint named, and
 each is asserted by an integration test.
@@ -609,6 +696,15 @@ each is asserted by an integration test.
 | I39 | A cancelled invoice records who cancelled it, when and why | `CK_Sales_Cancellation_Consistent` |
 | I40 | Two returns cannot both refund the same unit | `Sales`, `SaleLines` and `SaleLineBatchAllocations` `RowVersion` + conditional write |
 | I41 | A return number identifies exactly one return, and is never reused | `UX_SalesReturns_ReturnNumber` + `MERGE … WITH (HOLDLOCK)` on `InvoiceSequences` |
+| I42 | An account name is unique, and `imran` may not be created beside `Imran` | `UX_Users_NormalisedUserName` |
+| I43 | A stored password value is always a hash of the documented shape, and never a password | `CK_Users_PasswordHash_Encoded` + `PasswordHash.Parse` |
+| I44 | A role is always one of the four roles the application knows | `CK_Users_Role_Defined` |
+| I45 | The installation always has at least one active administrator | `EfUserDirectory.CountOtherActiveAdministratorsAsync` + `SetUpFirstAdministratorAsync`, and the three self-guards |
+| I46 | An administrator never changes the role of, resets the password of, or deactivates the account they are signed in with | `EfUserDirectory.IsSelf` + the refusal wording |
+| I47 | Every audit row names an actor and says something | `CK_AuditLogs_Summary_NotEmpty` + `AuditEntry.Record` |
+| I48 | Two administrators editing one account, or two counts of the last administrator, cannot interleave | `Users.RowVersion` + `UPDLOCK, HOLDLOCK` on the count |
+| I49 | The trail only ever grows: nothing updates or deletes an audit row | Absence of any `UPDATE`/`DELETE` against `AuditLogs` in the source |
+| I50 | No password, key, connection string or unnecessary personal detail is ever written to the trail | `SensitiveText.Scrub` inside the single `AuditEntry.Record` funnel |
 
 I13 is the only invariant the schema cannot express, because it spans rows. It is met by (a) the domain
 type refusing to mutate a balance without recording a movement and (b) the reconciliation query below,
@@ -628,6 +724,19 @@ that plans the operation — `SalesReturn.Record` validates the whole basket bef
 `EfSaleReturnCatalog` writes the refund, the quantity credits and the one restock movement inside a
 single transaction — and then checked by §5. I40 is conditional rather than declarative, in the same way
 as I18: the token is a column, but the check lives in the `WHERE` clause it generates.
+
+The identity invariants split the same way. I42, I43, I44 and I47 are declarative, and the schema enforces
+them on its own. **I45, I46 and I49 cannot be written as a constraint**, because each is a statement about
+which rows may exist *relative to each other at the moment of a write*, and two of them are statements about
+what a person is not permitted to do. I45 is held instead by counting the other active administrators inside
+a transaction that keeps `UPDLOCK, HOLDLOCK` on the table while it counts, so two administrators retired
+concurrently cannot both pass the count; I46 by comparing the target against the signed-in account before
+anything is staged, with the refusal worded identically whether the target exists or not, so the screen
+cannot be used to enumerate accounts; I49 by there being no code path that issues an `UPDATE` or a `DELETE`
+against `AuditLogs` — a property of the source, reviewed as one, which is why §5 prints the trail's own
+health rather than assuming it. I48 and I50 are the belt to those braces: the row token catches the
+interleaving that I45 and I46 reason about, and the single `Record` funnel means a new audit call site
+cannot forget to scrub.
 
 ## 5. Reconciliation and reporting queries
 
@@ -764,6 +873,47 @@ than joined because a stock movement carries no foreign key to the document that
 is intentionally independent of the workflow tables, so that a movement remains readable even if the
 document that produced it is ever archived.
 
+### The trail's own health
+
+Three queries a support call starts from. The first is invariant I45, the only one of the identity rules
+that can be read off a single statement; a pharmacy with no active administrator can no longer grant
+permissions, change a role or take a backup, and the application would refuse every administrative act
+until a fresh installation. Expected to return exactly one row with a positive count:
+
+```sql
+SELECT COUNT(*) AS ActiveAdministrators
+FROM Users
+WHERE IsActive = 1 AND Role = 0;
+```
+
+The second is the pressure on the sign-in screen. `Action = 1` is `SignInFailed`. A handful of rows after
+somebody mistypes a password is normal; a run of them on names that do not exist is not. Expected to be
+read, not asserted:
+
+```sql
+SELECT CAST(OccurredAtUtc AS date) AS OnDay, Actor, COUNT(*) AS Refusals
+FROM AuditLogs
+WHERE Action = 1
+GROUP BY CAST(OccurredAtUtc AS date), Actor
+ORDER BY OnDay DESC, Refusals DESC;
+```
+
+The third is a check that the trail can still be trusted as a record, in the same spirit as I13 and I29:
+rows that name nobody, or say nothing, should be impossible (`AuditEntry.Record` fills both, and
+`CK_AuditLogs_Summary_NotEmpty` guards the second), and the table should only ever grow. Expected to
+return **no rows**:
+
+```sql
+SELECT Id, Actor, Summary
+FROM AuditLogs
+WHERE LTRIM(RTRIM(Actor)) = '' OR LTRIM(RTRIM(Summary)) = '';
+```
+
+The Support tab in *Users & settings* shows the newest fifteen rows of this table, read through
+`IAuditTrail.RecentAsync`, which is the same query these three are written against. It deliberately does
+not show the trail as a whole: the screen is for the person holding the phone, and `SearchAsync` is what
+answers a specific question about a specific invoice.
+
 ## 6. Costing and valuation
 
 Inventory valuation uses the **actual cost of each batch** (specific identification):
@@ -799,6 +949,7 @@ reconciliation query in §5 is the guard.
 | `20261015223056_PointOfSale` | `Sales`, `SaleLines`, `SaleLineBatchAllocations`, `Payments`, `InvoiceSequences`, `Medicines.TaxRatePercent` and the constraints in §3.7–3.11 |
 | `20261015224739_MedicineTaxRatePrecision` | `Medicines.TaxRatePercent` to `decimal(5,2)` plus `CK_Medicines_TaxRate_Range`; no table is added |
 | `20261015225936_SalesReturnsAndStockDisposition` | `SalesReturns`, `SalesReturnLines`, the returned-quantity and returned-money columns on `SaleLines` and `SaleLineBatchAllocations` with their bounds, `RowVersion` on `Sales`, `SaleLines` and `SaleLineBatchAllocations`, and the cancellation audit columns on `Sales`; §3.7–3.9 and §3.12–3.13 |
+| `20261016050304_UsersRolesAndAuditLog` | `Users` and `AuditLogs` with their three indexes, the check constraints in §3.14–3.15, and `Users.RowVersion`; no existing table is touched, so a pharmacy that upgrades from `0.4.0` can apply it against live data without a rebuild |
 
 ```powershell
 dotnet ef migrations add <Name> --project src\MediStock.Infrastructure --startup-project src\MediStock.Desktop
@@ -817,7 +968,7 @@ where the plan's shape is ambiguous.
 | Milestone | Tables |
 |---|---|
 | 4 | `SalesReturns` and `SalesReturnLines` — shipped, §3.12–3.13 |
-| 5 | `Users`, `Roles`, `UserRoles`, `AuditLogs`, `ApplicationSettings` |
+| 5 | `Users` and `AuditLogs` — shipped, §3.14–3.15. `Roles`, `UserRoles` and `ApplicationSettings` were **not** built; see the departure note below |
 | later | `SupplierReturns` and `SupplierReturnLines` (supplier returns and expiry write-offs, Milestone 4b in the roadmap); `Manufacturers` and `MedicineBarcodes` only if a pharmacy actually needs them |
 
 Two departures from the plan's original list are deliberate and recorded in
@@ -832,6 +983,16 @@ there is no `SalesReturnLines.Disposition` lookup table, because a disposition i
 historical records and must not be renumbered by inserting a row; the three values are a check
 constraint instead (§3.13).
 
+A fourth is recorded in [ADR 0009](decisions/0009-users-roles-and-the-audit-trail.md): Milestone 5 ships
+no `Roles`, `UserRoles` or `ApplicationSettings` tables. The four roles and the ten permissions they grant
+are a compiled-in table, not rows — a pharmacy with two hundred medicines has no reason to be able to
+add a fifth role against live data, and if it ever does, that is a release, not an edit. Settings are the
+`MediStock` section of `appsettings.json` bound to `MediStockOptions`, so an operator changing a folder
+path cannot leave a value in the database that the code no longer agrees with.
+
 `InvoiceSequences` is implemented exactly on the rule stated here: a transactional counter row advanced
 by one atomic statement (§3.11), never `MAX(Number) + 1`. Milestone 4 added the return tables listed
-above and added the `RowVersion` to `Sales` before writing the first status change (§3.7).
+above and added the `RowVersion` to `Sales` before writing the first status change (§3.7). Milestone 5
+added `Users` and `AuditLogs` and stopped there: no existing column was widened, renamed or dropped, so an
+installed `0.4.0` database reaches `0.5.0` by applying one migration, and the migration is the only thing
+that has to be trusted during an upgrade.

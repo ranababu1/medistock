@@ -1,0 +1,132 @@
+<Window x:Class="MediStock.Desktop.Views.SignInWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:MediStock.Desktop.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:SignInViewModel}"
+        Title="MediStock"
+        Width="480"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="True"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource AppBackgroundBrush}"
+        FontFamily="{StaticResource AppFont}"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <StackPanel Margin="26,24,26,22">
+        <TextBlock Text="MediStock"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource AccentBrush}" />
+
+        <TextBlock Text="{Binding HeadlineText}"
+                   Style="{StaticResource SectionHeaderText}"
+                   Margin="0,10,0,0" />
+
+        <TextBlock Text="{Binding IntroText}"
+                   Style="{StaticResource BodyText}"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   TextWrapping="Wrap"
+                   Margin="0,6,0,0" />
+
+        <!-- First-run setup only -->
+        <StackPanel Visibility="{Binding IsFirstRun, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="Your name"
+                       Style="{StaticResource FieldLabelText}"
+                       Margin="0,18,0,4" />
+            <TextBox x:Name="DisplayNameBox"
+                     Style="{StaticResource ThemedTextBox}"
+                     MaxLength="120"
+                     IsEnabled="{Binding IsFormEnabled}"
+                     Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" />
+        </StackPanel>
+
+        <TextBlock Text="Account name" Style="{StaticResource FieldLabelText}" Margin="0,18,0,4" />
+        <TextBox x:Name="UserNameBox"
+                 Style="{StaticResource ThemedTextBox}"
+                 MaxLength="120"
+                 IsEnabled="{Binding IsFormEnabled}"
+                 Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}" />
+
+        <TextBlock Text="Password" Style="{StaticResource FieldLabelText}" Margin="0,14,0,4" />
+        <PasswordBox x:Name="PasswordBox"
+                     Style="{StaticResource ThemedPasswordBox}"
+                     MaxLength="128"
+                     IsEnabled="{Binding IsFormEnabled}" />
+
+        <StackPanel Visibility="{Binding IsFirstRun, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="Password again" Style="{StaticResource FieldLabelText}" Margin="0,14,0,4" />
+            <PasswordBox x:Name="ConfirmPasswordBox"
+                         Style="{StaticResource ThemedPasswordBox}"
+                         MaxLength="128"
+                         IsEnabled="{Binding IsFormEnabled}" />
+
+            <TextBlock Text="{Binding PasswordRulesText}"
+                       Style="{StaticResource CaptionText}"
+                       TextWrapping="Wrap"
+                       Margin="0,8,0,0" />
+        </StackPanel>
+
+        <Border Margin="0,16,0,0"
+                Padding="12,10"
+                Visibility="{Binding HasMessage, Converter={StaticResource BoolToVisibility}}">
+            <Border.Style>
+                <Style TargetType="Border" BasedOn="{StaticResource Card}">
+                    <Setter Property="BorderBrush" Value="{StaticResource SuccessBrush}" />
+                    <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsMessageProblem}" Value="True">
+                            <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}" />
+                            <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <TextBlock Text="{Binding Message}"
+                       Style="{StaticResource BodyText}"
+                       TextWrapping="Wrap" />
+        </Border>
+
+        <Grid Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <ProgressBar Grid.Column="0"
+                         Style="{StaticResource ProgressThin}"
+                         IsIndeterminate="True"
+                         Width="80"
+                         HorizontalAlignment="Left"
+                         VerticalAlignment="Center"
+                         Visibility="{Binding IsBusyOrChecking, Converter={StaticResource BoolToVisibility}}" />
+
+            <Button x:Name="CancelButton"
+                    Grid.Column="1"
+                    Content="Close"
+                    Style="{StaticResource SecondaryButton}"
+                    MinWidth="90"
+                    Click="OnCancel" />
+
+            <Button x:Name="SubmitButton"
+                    Grid.Column="2"
+                    Content="{Binding ActionText}"
+                    Style="{StaticResource PrimaryButton}"
+                    MinWidth="170"
+                    Margin="8,0,0,0"
+                    IsDefault="True"
+                    IsEnabled="{Binding IsFormEnabled}"
+                    Click="OnSubmit" />
+        </Grid>
+
+        <!-- Read down the telephone when somebody cannot sign in and needs help. -->
+        <TextBlock x:Name="VersionCaption"
+                   Style="{StaticResource CaptionText}"
+                   HorizontalAlignment="Right"
+                   Margin="0,12,0,0" />
+    </StackPanel>
+</Window>

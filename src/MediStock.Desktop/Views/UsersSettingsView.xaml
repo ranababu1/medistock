@@ -1,0 +1,795 @@
+<UserControl x:Class="MediStock.Desktop.Views.UsersSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MediStock.Desktop.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:UsersSettingsViewModel}"
+             d:DesignHeight="700"
+             d:DesignWidth="1100"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid Margin="24,20,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Users &amp; settings" Style="{StaticResource PageTitleText}" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0"
+                           Text="{Binding OperatorSummary}" />
+                <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0"
+                           TextWrapping="Wrap"
+                           Text="{Binding OperatorPermissionSummary}" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Change my password"
+                        Style="{StaticResource SecondaryButton}"
+                        Command="{Binding ChangeOwnPasswordCommand}" />
+                <Button Content="Refresh"
+                        Style="{StaticResource SecondaryButton}"
+                        Margin="8,0,0,0"
+                        Command="{Binding ReloadCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Cross-cutting messages -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <Border Background="{StaticResource DangerSoftBrush}"
+                    CornerRadius="6"
+                    Padding="12,8"
+                    Margin="0,0,0,8"
+                    Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Foreground="{StaticResource DangerBrush}"
+                           FontSize="12"
+                           TextWrapping="Wrap" />
+            </Border>
+
+            <Border Background="{StaticResource SuccessSoftBrush}"
+                    CornerRadius="6"
+                    Padding="12,8"
+                    Visibility="{Binding StatusMessage, Converter={StaticResource NotNullVisible}}">
+                <TextBlock Text="{Binding StatusMessage}"
+                           Foreground="{StaticResource SuccessBrush}"
+                           FontSize="12"
+                           TextWrapping="Wrap" />
+            </Border>
+        </StackPanel>
+
+        <TabControl Grid.Row="2" Style="{StaticResource ThemedTabControl}">
+
+            <!-- ============================================================ Accounts -->
+            <TabItem Header="Accounts" Style="{StaticResource ThemedTabItem}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Search -->
+                    <Border Grid.Row="0" Style="{StaticResource Card}" Padding="14" Margin="0,0,0,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox Grid.Column="0"
+                                     Style="{StaticResource ThemedTextBox}"
+                                     Text="{Binding AccountSearchTerm, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Search by account name or the name the person is known by">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Return" Command="{Binding LoadAccountsCommand}" />
+                                </TextBox.InputBindings>
+                            </TextBox>
+
+                            <CheckBox Grid.Column="1"
+                                      Style="{StaticResource ThemedCheckBox}"
+                                      Content="Include deactivated"
+                                      Margin="14,0,0,0"
+                                      VerticalAlignment="Center"
+                                      IsChecked="{Binding IncludeInactiveAccounts}" />
+
+                            <Button Grid.Column="2"
+                                    Content="Search"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Margin="14,0,0,0"
+                                    Command="{Binding LoadAccountsCommand}" />
+
+                            <Button Grid.Column="3"
+                                    Content="Clear"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Margin="8,0,0,0"
+                                    Command="{Binding ClearAccountSearchCommand}" />
+
+                            <TextBlock Grid.Column="4"
+                                       Style="{StaticResource CaptionText}"
+                                       Margin="16,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Text="{Binding AccountsSummary}" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MinWidth="420" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="430" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- The list -->
+                        <Border Grid.Column="0" Style="{StaticResource Card}" Padding="0">
+                            <Grid>
+                                <DataGrid ItemsSource="{Binding Accounts}"
+                                          SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
+                                          Style="{StaticResource ThemedDataGrid}"
+                                          BorderThickness="0"
+                                          AlternationCount="2"
+                                          IsReadOnly="True"
+                                          SelectionMode="Single">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Name" Binding="{Binding FriendlyName}" Width="2*" />
+                                        <DataGridTextColumn Header="Account" Binding="{Binding UserName}" Width="*" />
+                                        <DataGridTextColumn Header="Role" Binding="{Binding RoleLabel}" Width="Auto" />
+                                        <DataGridTextColumn Header="Status"
+                                                            Binding="{Binding IsActive, Converter={StaticResource ActiveStatus}}"
+                                                            Width="Auto" />
+                                        <DataGridTextColumn Header="Last signed in"
+                                                            Binding="{Binding LastSignedInAtUtc, Converter={StaticResource InstantText}}"
+                                                            Width="Auto" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <TextBlock Style="{StaticResource CaptionText}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           MaxWidth="340"
+                                           TextAlignment="Center"
+                                           Text="{Binding AccountsMessage}"
+                                           Visibility="{Binding HasNoAccounts, Converter={StaticResource BoolToVisibility}}" />
+                            </Grid>
+                        </Border>
+
+                        <!-- Actions, when nothing is being edited -->
+                        <Border Grid.Column="2" Padding="18">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource Card}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Editor.IsOpen}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock Text="Account" Style="{StaticResource SectionHeaderText}" />
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Margin="0,4,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="Choose an account in the list to change its role, reset its password, or stop it signing in." />
+
+                                    <Border Style="{StaticResource Divider}" Margin="0,12,0,12" />
+
+                                    <TextBlock Style="{StaticResource BodyText}"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding SelectedAccount.FriendlyName, FallbackValue=No account is selected}" />
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding SelectedAccount.UserName}" />
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding SelectedAccount.RoleLabel}" />
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Margin="0,8,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding SelectedAccountPermissionSummary}" />
+
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Foreground="{StaticResource WarningBrush}"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Text="This is the account you are signed in with. Roles and passwords are changed from another administrator's account, or with Change my password."
+                                               Visibility="{Binding SelectedAccountIsSelf, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <Button Content="New account"
+                                            Style="{StaticResource PrimaryButton}"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,16,0,0"
+                                            Command="{Binding NewAccountCommand}" />
+
+                                    <Button Content="Change role"
+                                            Style="{StaticResource SecondaryButton}"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,8,0,0"
+                                            Command="{Binding ChangeRoleCommand}"
+                                            IsEnabled="{Binding CanEditSelectedAccount}" />
+
+                                    <Button Content="Reset password"
+                                            Style="{StaticResource SecondaryButton}"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,8,0,0"
+                                            Command="{Binding ResetPasswordCommand}"
+                                            IsEnabled="{Binding CanResetSelectedAccountPassword}" />
+
+                                    <Button Content="{Binding ToggleActiveButtonText}"
+                                            Style="{StaticResource SecondaryButton}"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,8,0,0"
+                                            Command="{Binding ToggleActiveCommand}"
+                                            IsEnabled="{Binding CanToggleSelectedAccount}" />
+
+                                    <Border Style="{StaticResource Divider}" Margin="0,16,0,12" />
+
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding AccountsMessage}" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+
+                        <!-- The editor panel -->
+                        <Border Grid.Column="2"
+                                Style="{StaticResource Card}"
+                                Padding="18"
+                                Visibility="{Binding Editor.IsOpen, Converter={StaticResource BoolToVisibility}}">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Editor.Title}" Style="{StaticResource SectionHeaderText}" />
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Margin="0,4,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding Editor.IntroText}" />
+
+                                    <Border Background="{StaticResource AccentSoftBrush}"
+                                            CornerRadius="6"
+                                            Padding="10"
+                                            Margin="0,12,0,0"
+                                            Visibility="{Binding Editor.ShowsAccountSummary, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="{Binding Editor.AccountSummary}"
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap" />
+                                    </Border>
+
+                                    <Border Background="{StaticResource DangerSoftBrush}"
+                                            CornerRadius="6"
+                                            Padding="10"
+                                            Margin="0,12,0,0"
+                                            Visibility="{Binding Editor.HasValidationMessage, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="{Binding Editor.ValidationMessage}"
+                                                   Foreground="{StaticResource DangerBrush}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap" />
+                                    </Border>
+
+                                    <TextBlock Text="Account name" Style="{StaticResource FieldLabelText}"
+                                               Margin="0,14,0,4"
+                                               Visibility="{Binding Editor.ShowsUserName, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBox x:Name="UserNameBox"
+                                             Style="{StaticResource ThemedTextBox}"
+                                             Text="{Binding Editor.UserName, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="How this person signs in. Unique, ignoring case."
+                                             Visibility="{Binding Editor.ShowsUserName, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <TextBlock Text="Name the person is known by" Style="{StaticResource FieldLabelText}"
+                                               Margin="0,12,0,4"
+                                               Visibility="{Binding Editor.ShowsDisplayName, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBox x:Name="DisplayNameBox"
+                                             Style="{StaticResource ThemedTextBox}"
+                                             Text="{Binding Editor.DisplayName, UpdateSourceTrigger=PropertyChanged}"
+                                             Visibility="{Binding Editor.ShowsDisplayName, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <TextBlock Text="Role" Style="{StaticResource FieldLabelText}"
+                                               Margin="0,12,0,4"
+                                               Visibility="{Binding Editor.ShowsRole, Converter={StaticResource BoolToVisibility}}" />
+                                    <ComboBox Style="{StaticResource ThemedComboBox}"
+                                              ItemsSource="{Binding Editor.Roles}"
+                                              SelectedItem="{Binding Editor.SelectedRole, Mode=TwoWay}"
+                                              DisplayMemberPath="Label"
+                                              Visibility="{Binding Editor.ShowsRole, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBlock Style="{StaticResource CaptionText}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding Editor.SelectedRoleSummary}"
+                                               Visibility="{Binding Editor.ShowsRole, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <TextBlock Text="Current password" Style="{StaticResource FieldLabelText}"
+                                               Margin="0,12,0,4"
+                                               Visibility="{Binding Editor.ShowsCurrentPassword, Converter={StaticResource BoolToVisibility}}" />
+                                    <PasswordBox x:Name="CurrentPasswordBox"
+                                                 Style="{StaticResource ThemedPasswordBox}"
+                                                 PasswordChanged="OnEditorPasswordChanged"
+                                                 Visibility="{Binding Editor.ShowsCurrentPassword, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <TextBlock Text="New password" Style="{StaticResource FieldLabelText}"
+                                               Margin="0,12,0,4"
+                                               Visibility="{Binding Editor.ShowsNewPassword, Converter={StaticResource BoolToVisibility}}" />
+                                    <PasswordBox x:Name="NewPasswordBox"
+                                                 Style="{StaticResource ThemedPasswordBox}"
+                                                 PasswordChanged="OnEditorPasswordChanged"
+                                                 Visibility="{Binding Editor.ShowsNewPassword, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <TextBlock Text="Repeat the new password" Style="{StaticResource FieldLabelText}"
+                                               Margin="0,12,0,4"
+                                               Visibility="{Binding Editor.ShowsConfirmPassword, Converter={StaticResource BoolToVisibility}}" />
+                                    <PasswordBox x:Name="ConfirmPasswordBox"
+                                                 Style="{StaticResource ThemedPasswordBox}"
+                                                 PasswordChanged="OnEditorPasswordChanged"
+                                                 Visibility="{Binding Editor.ShowsConfirmPassword, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <TextBlock Text="Reason" Style="{StaticResource FieldLabelText}"
+                                               Margin="0,12,0,4"
+                                               Visibility="{Binding Editor.ShowsReason, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBox Style="{StaticResource ThemedTextBox}"
+                                             Text="{Binding Editor.Reason, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="Recorded in the audit trail beside the change"
+                                             Visibility="{Binding Editor.ShowsReason, Converter={StaticResource BoolToVisibility}}" />
+
+                                    <Border Style="{StaticResource Divider}" Margin="0,16,0,14" />
+
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button x:Name="SaveEditorButton"
+                                                Content="{Binding Editor.SaveButtonText}"
+                                                Style="{StaticResource PrimaryButton}"
+                                                Command="{Binding SaveEditorCommand}" />
+                                        <Button Content="Cancel"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Margin="8,0,0,0"
+                                                Command="{Binding CancelEditorCommand}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ Audit trail -->
+            <TabItem Header="Audit trail" Style="{StaticResource ThemedTabItem}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Style="{StaticResource Card}" Padding="14" Margin="0,0,0,14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Row="0" Grid.Column="0">
+                                <TextBlock Text="Words in the row" Style="{StaticResource FieldLabelText}" />
+                                <TextBox Style="{StaticResource ThemedTextBox}"
+                                         Text="{Binding AuditTerm, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Matched against the summary, the reason, the detail, the record and the account">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Return" Command="{Binding RunAuditQueryCommand}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="0" Grid.Column="2">
+                                <TextBlock Text="Account" Style="{StaticResource FieldLabelText}" />
+                                <TextBox Style="{StaticResource ThemedTextBox}"
+                                         Text="{Binding AuditActor, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="An account name, matched exactly">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Return" Command="{Binding RunAuditQueryCommand}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="0" Grid.Column="4">
+                                <TextBlock Text="Action" Style="{StaticResource FieldLabelText}" />
+                                <ComboBox Style="{StaticResource ThemedComboBox}"
+                                          ItemsSource="{Binding AuditActions}"
+                                          SelectedItem="{Binding AuditAction, Mode=TwoWay}"
+                                          DisplayMemberPath="Label" />
+                            </StackPanel>
+
+                            <Grid Grid.Row="1" Grid.ColumnSpan="5" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Business date from" Style="{StaticResource FieldLabelText}" />
+                                    <DatePicker SelectedDate="{Binding AuditFrom, Converter={StaticResource DateOnlyToDateTime}}"
+                                                Width="150" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                    <TextBlock Text="to" Style="{StaticResource FieldLabelText}" />
+                                    <DatePicker SelectedDate="{Binding AuditTo, Converter={StaticResource DateOnlyToDateTime}}"
+                                                Width="150" />
+                                </StackPanel>
+
+                                <CheckBox Grid.Column="2"
+                                          Style="{StaticResource ThemedCheckBox}"
+                                          Content="Newest first"
+                                          Margin="16,20,0,0"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding AuditNewestFirst}" />
+
+                                <Button Grid.Column="3"
+                                        Content="Run"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="16,20,0,0"
+                                        VerticalAlignment="Center"
+                                        Command="{Binding RunAuditQueryCommand}" />
+
+                                <Button Grid.Column="4"
+                                        Content="Today"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="8,20,0,0"
+                                        VerticalAlignment="Center"
+                                        Command="{Binding ShowAuditTodayCommand}" />
+
+                                <Button Grid.Column="5"
+                                        Content="Last 7 days"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="8,20,0,0"
+                                        VerticalAlignment="Center"
+                                        Command="{Binding ShowAuditWeekCommand}" />
+
+                                <Button Grid.Column="6"
+                                        Content="Clear filters"
+                                        Style="{StaticResource LinkButton}"
+                                        Margin="16,20,0,0"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Left"
+                                        Command="{Binding ClearAuditFiltersCommand}" />
+
+                                <TextBlock Grid.Column="7"
+                                           Style="{StaticResource CaptionText}"
+                                           Margin="16,20,0,0"
+                                           VerticalAlignment="Center"
+                                           Text="{Binding AuditSummary}" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+                        <Grid>
+                            <DataGrid ItemsSource="{Binding AuditRows}"
+                                      SelectedItem="{Binding SelectedAuditEntry, Mode=TwoWay}"
+                                      Style="{StaticResource ThemedDataGrid}"
+                                      BorderThickness="0"
+                                      AlternationCount="2"
+                                      IsReadOnly="True"
+                                      SelectionMode="Single">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="When"
+                                                        Binding="{Binding OccurredAtUtc, Converter={StaticResource InstantText}}"
+                                                        Width="Auto" />
+                                    <DataGridTextColumn Header="Action" Binding="{Binding ActionLabel}" Width="Auto" />
+                                    <DataGridTextColumn Header="Account" Binding="{Binding Actor}" Width="Auto" />
+                                    <DataGridTextColumn Header="What happened" Binding="{Binding Summary}" Width="2*" />
+                                    <DataGridTextColumn Header="Record" Binding="{Binding EntityId}" Width="Auto" />
+                                    <DataGridTextColumn Header="Why" Binding="{Binding Reason}" Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="380"
+                                       TextAlignment="Center"
+                                       Text="{Binding AuditMessage}"
+                                       Visibility="{Binding HasNoAuditRows, Converter={StaticResource BoolToVisibility}}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="14" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Chosen row" Style="{StaticResource FieldLabelText}" />
+                            <TextBlock Style="{StaticResource BodyText}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding SelectedAuditEntry.Description, FallbackValue=Choose a row to read its detail.}" />
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       Margin="0,6,0,0"
+                                       TextWrapping="Wrap"
+                                       Text="{Binding SelectedAuditEntry.Detail}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ Backup -->
+            <TabItem Header="Backup" Style="{StaticResource ThemedTabItem}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Style="{StaticResource Card}" Padding="14" Margin="0,0,0,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Backup folder" Style="{StaticResource FieldLabelText}" />
+                                <TextBox Style="{StaticResource ThemedTextBox}"
+                                         IsReadOnly="True"
+                                         Text="{Binding BackupFolder, Mode=OneWay}" />
+                            </StackPanel>
+
+                            <Button Grid.Column="1"
+                                    Content="Open folder"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Margin="12,20,0,0"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding OpenBackupFolderCommand}" />
+
+                            <Button Grid.Column="2"
+                                    Content="Refresh"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Margin="8,20,0,0"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding LoadBackupsCommand}" />
+
+                            <Button Grid.Column="3"
+                                    Content="Take backup now"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Margin="8,20,0,0"
+                                    VerticalAlignment="Center"
+                                    IsEnabled="{Binding CanBackUp}"
+                                    Command="{Binding TakeBackupCommand}" />
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+                        <Grid>
+                            <DataGrid ItemsSource="{Binding Backups}"
+                                      SelectedItem="{Binding SelectedBackup, Mode=TwoWay}"
+                                      Style="{StaticResource ThemedDataGrid}"
+                                      BorderThickness="0"
+                                      AlternationCount="2"
+                                      IsReadOnly="True"
+                                      SelectionMode="Single">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="2*" />
+                                    <DataGridTextColumn Header="Written"
+                                                        Binding="{Binding WrittenAtUtc, Converter={StaticResource InstantText}}"
+                                                        Width="Auto" />
+                                    <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" Width="Auto" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="380"
+                                       TextAlignment="Center"
+                                       Text="{Binding BackupSummary}"
+                                       Visibility="{Binding HasNoBackups, Converter={StaticResource BoolToVisibility}}" />
+                        </Grid>
+                    </Border>
+
+                    <StackPanel Grid.Row="2" Margin="0,14,0,0">
+                        <Border Background="{StaticResource WarningSoftBrush}"
+                                CornerRadius="6"
+                                Padding="12,10"
+                                Margin="0,0,0,12"
+                                Visibility="{Binding HasRestorePending, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="{Binding RestoreNotice}"
+                                       Foreground="{StaticResource WarningBrush}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap" />
+                        </Border>
+
+                        <Border Style="{StaticResource Card}" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="{Binding SelectedBackupSummary}"
+                                           Style="{StaticResource BodyText}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Style="{StaticResource CaptionText}"
+                                           Margin="0,4,0,0"
+                                           TextWrapping="Wrap"
+                                           Text="Restoring replaces the whole database and undoes everything recorded since the file was written. It asks for a reason, and the application has to be restarted afterwards." />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Content="Check this backup"
+                                            Style="{StaticResource SecondaryButton}"
+                                            IsEnabled="{Binding CanVerifySelectedBackup}"
+                                            Command="{Binding VerifyBackupCommand}" />
+                                    <Button Content="Restore this backup"
+                                            Style="{StaticResource DangerButton}"
+                                            Margin="8,0,0,0"
+                                            IsEnabled="{Binding CanRestoreSelectedBackup}"
+                                            Command="{Binding RestoreBackupCommand}" />
+                                </StackPanel>
+
+                                <TextBlock Style="{StaticResource CaptionText}"
+                                           Margin="0,10,0,0"
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource WarningBrush}"
+                                           Text="{Binding BackupMessage}" />
+                                <TextBlock Style="{StaticResource CaptionText}"
+                                           Margin="0,10,0,0"
+                                           TextWrapping="Wrap"
+                                           Text="{Binding BackupRefusalNote}"
+                                           Visibility="{Binding CannotBackUp, Converter={StaticResource BoolToVisibility}}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ Support -->
+            <TabItem Header="Support" Style="{StaticResource ThemedTabItem}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Style="{StaticResource Card}" Padding="16" Margin="0,0,0,14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0">
+                                <TextBlock Text="This installation" Style="{StaticResource FieldLabelText}" />
+                                <TextBlock Style="{StaticResource BodyText}" Margin="0,4,0,0"
+                                           TextWrapping="Wrap"
+                                           Text="{Binding PharmacySummary}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Margin="0,12,0,0">
+                                <TextBlock Text="Application" Style="{StaticResource FieldLabelText}" />
+                                <TextBlock Style="{StaticResource BodyText}" Margin="0,4,0,0"
+                                           TextWrapping="Wrap"
+                                           Text="{Binding ApplicationSummary}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                                <TextBlock Text="Database" Style="{StaticResource FieldLabelText}" />
+                                <TextBlock Style="{StaticResource BodyText}" Margin="0,4,0,0"
+                                           TextWrapping="Wrap"
+                                           Text="{Binding DatabaseSummary}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,14,0,0">
+                                <Button Content="Check the database"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Command="{Binding CheckDatabaseCommand}" />
+                                <Button Content="Apply schema changes"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="8,0,0,0"
+                                        IsEnabled="{Binding CanApplyMigrations}"
+                                        Command="{Binding ApplyMigrationsCommand}" />
+                                <Button Content="Recent activity"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="8,0,0,0"
+                                        Command="{Binding LoadRecentAuditCommand}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="16" Margin="0,0,0,14">
+                        <StackPanel>
+                            <TextBlock Text="Log file for this session" Style="{StaticResource FieldLabelText}" />
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0"
+                                         Style="{StaticResource ThemedTextBox}"
+                                         IsReadOnly="True"
+                                         Text="{Binding LogFilePath, Mode=OneWay}" />
+                                <Button Grid.Column="1"
+                                        Content="Open log folder"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="12,0,0,0"
+                                        Command="{Binding OpenLogFolderCommand}" />
+                            </Grid>
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap"
+                                       Text="The log holds errors and what the application did. It never holds passwords. Send this file with a support request." />
+                            <TextBlock Style="{StaticResource CaptionText}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap"
+                                       Foreground="{StaticResource DangerBrush}"
+                                       Text="{Binding SupportMessage}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0"
+                                       Text="The last few things this installation did"
+                                       Style="{StaticResource SectionHeaderText}" />
+
+                            <DataGrid Grid.Row="1"
+                                      ItemsSource="{Binding RecentAuditRows}"
+                                      Style="{StaticResource ThemedDataGrid}"
+                                      BorderThickness="0"
+                                      AlternationCount="2"
+                                      IsReadOnly="True"
+                                      Margin="0,10,0,0">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="When"
+                                                        Binding="{Binding OccurredAtUtc, Converter={StaticResource InstantText}}"
+                                                        Width="Auto" />
+                                    <DataGridTextColumn Header="Action" Binding="{Binding ActionLabel}" Width="Auto" />
+                                    <DataGridTextColumn Header="Account" Binding="{Binding Actor}" Width="Auto" />
+                                    <DataGridTextColumn Header="What happened" Binding="{Binding Summary}" Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Footer -->
+        <TextBlock Grid.Row="3"
+                   Style="{StaticResource CaptionText}"
+                   Margin="0,12,0,0"
+                   TextWrapping="Wrap"
+                   Text="Every change on this page is written to the audit trail with the account that made it. Accounts are never deleted, only deactivated." />
+    </Grid>
+</UserControl>

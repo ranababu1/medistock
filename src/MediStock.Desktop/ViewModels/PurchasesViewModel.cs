@@ -6,6 +6,7 @@ using MediStock.Application.Catalogue;
 using MediStock.Application.Common;
 using MediStock.Application.Purchasing;
 using MediStock.Application.Suppliers;
+using MediStock.Application.Identity;
 using MediStock.Desktop.Services;
 using MediStock.Domain.Purchasing;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,7 @@ public sealed partial class PurchasesViewModel : ViewModelBase
     private readonly IPurchaseCatalog _purchases;
     private readonly ISupplierCatalog _suppliers;
     private readonly IMedicineCatalog _medicines;
+    private readonly IUserSession _session;
     private readonly IDialogService _dialogs;
     private readonly ILogger<PurchasesViewModel> _logger;
 
@@ -28,6 +30,7 @@ public sealed partial class PurchasesViewModel : ViewModelBase
         IPurchaseCatalog purchases,
         ISupplierCatalog suppliers,
         IMedicineCatalog medicines,
+        IUserSession session,
         IDialogService dialogs,
         IClock clock,
         ILogger<PurchasesViewModel> logger)
@@ -36,6 +39,7 @@ public sealed partial class PurchasesViewModel : ViewModelBase
         _purchases = purchases;
         _suppliers = suppliers;
         _medicines = medicines;
+        _session = session;
         _dialogs = dialogs;
         _logger = logger;
 
@@ -50,7 +54,7 @@ public sealed partial class PurchasesViewModel : ViewModelBase
 
         SelectedStatusFilter = StatusFilters[0];
         ReceivedOn = clock.BusinessDate;
-        ReceivedBy = Environment.UserName;
+        ReceivedBy = DefaultOperatorName;
         Editor = new PurchaseEditorViewModel(clock);
 
         // The busy flag lives on the base type, so its changes are observed here rather than by
@@ -104,7 +108,7 @@ public sealed partial class PurchasesViewModel : ViewModelBase
     private DateOnly receivedOn;
 
     [ObservableProperty]
-    private string receivedBy = Environment.UserName;
+    private string receivedBy = string.Empty;
 
     public string ResultSummary => Purchases.Count switch
     {
@@ -504,7 +508,15 @@ public sealed partial class PurchasesViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanCheckDuplicate));
     }
 
-    private string OperatorName => string.IsNullOrWhiteSpace(ReceivedBy) ? Environment.UserName : ReceivedBy.Trim();
+    /// <summary>
+    /// Who to credit for a receipt when the operator has not typed a name. The signed-in person is the
+    /// right answer here; the Windows account is only a fallback for the moment before anyone signs in.
+    /// </summary>
+    private string DefaultOperatorName =>
+        _session.CurrentUser?.FriendlyName ?? Environment.UserName;
+
+    private string OperatorName =>
+        string.IsNullOrWhiteSpace(ReceivedBy) ? DefaultOperatorName : ReceivedBy.Trim();
 
     private async Task LoadLookupsAsync(CancellationToken cancellationToken)
     {

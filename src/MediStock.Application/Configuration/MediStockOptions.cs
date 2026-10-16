@@ -1,4 +1,4 @@
-namespace MediStock.Application.Configuration;
+using MediStock.Domain.Identity;
 
 /// <summary>
 /// Settings bound from the <c>MediStock</c> configuration section. Kept free of anything secret;
@@ -31,4 +31,17 @@ public sealed class MediStockOptions
 
     /// <summary>Folder that exported report files are written to, resolved the same way as receipts.</summary>
     public string ReportFolder { get; set; } = @"MediStock\Reports";
+
+    /// <summary>
+    /// Folder that database backups are written to and listed from, resolved the same way as receipts. Kept
+    /// out of the installation folder so that a reinstall cannot delete the pharmacy's only backup.
+    /// </summary>
+    public string BackupFolder { get; set; } = @"MediStock\Backups";
+
+    /// <summary>
+    /// How many PBKDF2 rounds are used when a password is written. Left at the recommended value in
+    /// production; lowered in automated tests, where hashing is not what is being tested and 210,000 rounds
+    /// per account would dominate the run time.
+    /// </summary>
+    public int PasswordIterations { get; set; } = PasswordHash.RecommendedIterations;
 }

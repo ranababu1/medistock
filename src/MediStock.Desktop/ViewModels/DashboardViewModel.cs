@@ -265,6 +265,12 @@ public sealed partial class DashboardViewModel : ViewModelBase
     [RelayCommand]
     private void OpenSalesHistory() => _navigation.NavigateTo(NavigationRoutes.SalesHistory);
 
+    [RelayCommand]
+    private void OpenReturns() => _navigation.NavigateTo(NavigationRoutes.Returns);
+
+    [RelayCommand]
+    private void OpenSettings() => _navigation.NavigateTo(NavigationRoutes.Settings);
+
     partial void OnSnapshotChanged(DashboardSnapshot value)
     {
         OnPropertyChanged(nameof(BusinessDateText));

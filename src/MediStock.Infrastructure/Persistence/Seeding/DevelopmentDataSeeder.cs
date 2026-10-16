@@ -1,11 +1,14 @@
 using MediStock.Application.Common;
+using MediStock.Application.Identity;
 using MediStock.Application.Sales;
 using MediStock.Domain.Catalogue;
 using MediStock.Domain.Common;
+using MediStock.Domain.Identity;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Purchasing;
 using MediStock.Domain.Sales;
 using MediStock.Domain.Suppliers;
+using MediStock.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +29,8 @@ public sealed class DevelopmentDataSeeder
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly ISaleCatalog _sales;
     private readonly ISaleReturnCatalog _returns;
+    private readonly IAuthenticationService _authentication;
+    private readonly IPasswordHasher _passwords;
     private readonly IClock _clock;
     private readonly ILogger<DevelopmentDataSeeder> _logger;
 
@@ -33,12 +38,16 @@ public sealed class DevelopmentDataSeeder
         IDbContextFactory<MediStockDbContext> factory,
         ISaleCatalog sales,
         ISaleReturnCatalog returns,
+        IAuthenticationService authentication,
+        IPasswordHasher passwords,
         IClock clock,
         ILogger<DevelopmentDataSeeder> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _sales = sales ?? throw new ArgumentNullException(nameof(sales));
         _returns = returns ?? throw new ArgumentNullException(nameof(returns));
+        _authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
+        _passwords = passwords ?? throw new ArgumentNullException(nameof(passwords));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -49,6 +58,10 @@ public sealed class DevelopmentDataSeeder
         // Seeding is a single unit of work that relies on change tracking and on SaveChanges assigning
         // identities, so one context is used for the whole method.
         await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        // Accounts are seeded before the catalogue guard: a developer whose database already has data in it
+        // still needs to be able to sign in, and without an account the application cannot be opened at all.
+        var accounts = await SeedAccountsAsync(db, cancellationToken).ConfigureAwait(false);
 
         if (await db.Medicines.AnyAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -200,7 +213,102 @@ public sealed class DevelopmentDataSeeder
             returns.Count,
             movementCount);
 
+        // Nobody is signed in when the shell appears. The seed signed itself in only because a sale cannot
+        // be rung up without the permission to take money, and leaving that session open would mean the
+        // application started already signed in as an administrator.
+        await _authentication.SignOutAsync(cancellationToken).ConfigureAwait(false);
+
         return movementCount;
+    }
+
+    /// <summary>
+    /// Creates the development accounts, once, when the table is empty, and leaves the administrator signed
+    /// in so that the rest of the seeding can drive the real sale and return workflows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// These passwords are in the source on purpose and are safe only because this method is behind
+    /// <c>MediStock:SeedDevelopmentData</c> and never runs against a database that already has accounts. A
+    /// fresh installation goes through the first-run setup screen instead, where the operator chooses the
+    /// administrator password and nobody else ever sees it.
+    /// </para>
+    /// <para>
+    /// The administrator is created through the real first-run bootstrap rather than written straight into
+    /// the table, so the development database exercises the same path a new pharmacy would, and the session
+    /// that results is what authorises the sample sales and returns further down. The other two accounts are
+    /// created through the domain on this seeder's own context, because the manage-users permission they
+    /// would otherwise need cannot be granted before an administrator exists.
+    /// </para>
+    /// </remarks>
+    private async Task<int> SeedAccountsAsync(MediStockDbContext db, CancellationToken cancellationToken)
+    {
+        if (await db.Users.AnyAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return 0;
+        }
+
+        var administrator = await _authentication.SetUpFirstAdministratorAsync(
+            new UserDraft
+            {
+                UserName = "admin",
+                DisplayName = "Ravi Menon",
+                Role = Role.Administrator,
+                Password = "Kestrel-Harbour-71",
+                ConfirmPassword = "Kestrel-Harbour-71",
+                Reason = "Development seed.",
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!administrator.Succeeded)
+        {
+            throw new InvalidOperationException(
+                "The development administrator could not be created: " + string.Join(" | ", administrator.Errors));
+        }
+
+        // (account, display name, role, password). None of the passwords contains the account name and none
+        // is on the policy's list of obvious ones, which is what PasswordPolicy.Ensure checks below.
+        var seeds = new (string UserName, string DisplayName, Role Role, string Password)[]
+        {
+            ("pharmacist", "Dr Sameer Kulkarni", Role.Pharmacist, "Fennel-Juniper-38"),
+            ("cashier", "Anita Rao", Role.Cashier, "Marigold-Till-92"),
+        };
+
+        var now = _clock.UtcNow;
+
+        foreach (var seed in seeds)
+        {
+            PasswordPolicy.Ensure(seed.Password, seed.UserName);
+
+            var user = User.Create(
+                seed.UserName,
+                seed.DisplayName,
+                seed.Role,
+                _passwords.Hash(seed.Password),
+                now);
+
+            db.Users.Add(user);
+
+            AuditJournal.Stage(
+                db,
+                new AuditRecord(
+                    AuditAction.UserCreated,
+                    $"The sample {seed.Role} account {seed.UserName} was created for development.")
+                {
+                    EntityType = "User",
+                    EntityId = seed.UserName,
+                    Detail = "Created by the development data seeder. Not for use with real patient data.",
+                },
+                actor: Operator,
+                userId: null);
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Seeded {Count} development account(s). Change their passwords before using real data.",
+            seeds.Length + 1);
+
+        return seeds.Length + 1;
     }
 
     /// <summary>

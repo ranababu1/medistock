@@ -1,9 +1,13 @@
+using System.Globalization;
 using System.Linq.Expressions;
 using MediStock.Application.Common;
+using MediStock.Application.Identity;
 using MediStock.Application.Purchasing;
 using MediStock.Domain.Common;
+using MediStock.Domain.Identity;
 using MediStock.Domain.Inventory;
 using MediStock.Domain.Purchasing;
+using MediStock.Infrastructure.Identity;
 using MediStock.Infrastructure.Persistence;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -52,15 +56,18 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
 
     private readonly IDbContextFactory<MediStockDbContext> _factory;
     private readonly IClock _clock;
+    private readonly IUserSession _session;
     private readonly ILogger<EfPurchaseCatalog> _logger;
 
     public EfPurchaseCatalog(
         IDbContextFactory<MediStockDbContext> factory,
         IClock clock,
+        IUserSession session,
         ILogger<EfPurchaseCatalog> logger)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -182,6 +189,23 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
 
         db.Purchases.Add(purchase);
 
+        // The audit row is staged on the same context and saved by the same SaveChanges, so a purchase can
+        // never exist without the row that says who raised it.
+        var (actor, actorId) = AuditJournal.ActorOf(_session);
+
+        AuditJournal.Stage(
+            db,
+            new AuditRecord(
+                AuditAction.PurchaseCreated,
+                $"Purchase {purchase.InvoiceNumber} was recorded for {purchase.Lines.Count} line(s).")
+            {
+                EntityType = "Purchase",
+                EntityId = purchase.InvoiceNumber,
+                Detail = $"Supplier {purchase.SupplierId}, invoice dated {purchase.InvoiceDate:yyyy-MM-dd}.",
+            },
+            actor,
+            actorId);
+
         try
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -227,6 +251,12 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
                 return OperationResult<int>.Fail($"Purchase {purchaseId} no longer exists.");
             }
 
+            // Lines are replaced wholesale, so the prices an edit is about to overwrite have to be read
+            // before the removal, or there would be nothing left to compare the new ones against.
+            var storedPrices = purchase.Lines.ToDictionary(
+                line => LineKey(line.MedicineId, line.BatchNumber, line.ExpiryDate),
+                line => (line.UnitCost, line.SellingPrice));
+
             try
             {
                 purchase.UpdateHeader(draft.SupplierId, draft.InvoiceNumber, draft.InvoiceDate, draft.Notes, _clock.UtcNow);
@@ -270,6 +300,38 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
             {
                 return OperationResult<int>.Fail(ex.Message);
             }
+
+            var movedPrices = draft.Lines
+                .Select(line => (Key: LineKey(line.MedicineId, line.BatchNumber, line.ExpiryDate), Line: line))
+                .Where(entry => storedPrices.TryGetValue(entry.Key, out var stored)
+                    && (stored.UnitCost != entry.Line.UnitCost || stored.SellingPrice != entry.Line.SellingPrice))
+                .Select(entry => string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: cost {1:0.00} → {2:0.00}, price {3:0.00} → {4:0.00}",
+                    entry.Line.BatchNumber,
+                    storedPrices[entry.Key].UnitCost,
+                    entry.Line.UnitCost,
+                    storedPrices[entry.Key].SellingPrice,
+                    entry.Line.SellingPrice))
+                .ToList();
+
+            var (editor, editorId) = AuditJournal.ActorOf(_session);
+
+            AuditJournal.Stage(
+                db,
+                new AuditRecord(
+                    movedPrices.Count > 0 ? AuditAction.PriceChanged : AuditAction.PurchaseUpdated,
+                    movedPrices.Count > 0
+                        ? $"Prices on purchase {purchase.InvoiceNumber} were changed on {movedPrices.Count} line(s)."
+                        : $"Purchase {purchase.InvoiceNumber} was edited.")
+                {
+                    EntityType = "Purchase",
+                    EntityId = $"PUR-{purchase.Id}",
+                    Reason = purchase.Notes,
+                    Detail = movedPrices.Count > 0 ? string.Join("; ", movedPrices) : null,
+                },
+                editor,
+                editorId);
 
             try
             {
@@ -382,6 +444,24 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
                     nowUtc: now));
             }
 
+            var (actor, actorId) = OperatorOf(receivedBy);
+
+            AuditJournal.Stage(
+                db,
+                new AuditRecord(
+                    AuditAction.PurchaseReceived,
+                    $"Purchase {purchase.InvoiceNumber} was received: {receipts.Count} batch(es) added to stock.")
+                {
+                    EntityType = "Purchase",
+                    EntityId = Reference(purchase.Id),
+                    Detail = string.Join(
+                        "; ",
+                        receipts.Select(receipt =>
+                            $"{receipt.BatchNumber} × {receipt.Quantity:0.###} @ {receipt.UnitCost:0.00}")),
+                },
+                actor,
+                actorId);
+
             try
             {
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -493,6 +573,23 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
                     now));
             }
 
+            var (actor, actorId) = OperatorOf(reversedBy);
+
+            AuditJournal.Stage(
+                db,
+                new AuditRecord(
+                    AuditAction.PurchaseReversed,
+                    $"Purchase {purchase.InvoiceNumber} was reversed: {lines.Count} batch(es) taken back out of stock.")
+                {
+                    EntityType = "Purchase",
+                    EntityId = Reference(purchase.Id),
+                    Reason = reason,
+                    Detail = string.Join("; ", lines.Select(line =>
+                        $"{line.BatchNumber} × {line.QuantityReceived:0.###}")),
+                },
+                actor,
+                actorId);
+
             try
             {
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -548,6 +645,21 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
         {
             return OperationResult<PurchaseDto>.Fail(ex.Message);
         }
+
+        var (actor, actorId) = OperatorOf(cancelledBy);
+
+        AuditJournal.Stage(
+            db,
+            new AuditRecord(
+                AuditAction.PurchaseCancelled,
+                $"Draft purchase {purchase.InvoiceNumber} was cancelled.")
+            {
+                EntityType = "Purchase",
+                EntityId = Reference(purchase.Id),
+                Reason = reason,
+            },
+            actor,
+            actorId);
 
         try
         {
@@ -649,6 +761,35 @@ internal sealed class EfPurchaseCatalog : IPurchaseCatalog
     }
 
     private static string Reference(int purchaseId) => $"PUR-{purchaseId}";
+
+    /// <summary>
+    /// How a draft line is matched to a stored one when deciding whether an edit moved a price. An edit
+    /// deletes and re-adds every line, so identity has to be the medicine and the batch, never a key.
+    /// </summary>
+    private static string LineKey(int medicineId, string batchNumber, DateOnly expiryDate)
+        => $"{medicineId}|{batchNumber.Trim().ToUpperInvariant()}|{expiryDate:yyyy-MM-dd}";
+
+    /// <summary>
+    /// The name a stock movement is signed with, and the account it belongs to when that name really is the
+    /// signed-in one. The operator box is free text, so the two can differ; the trail records what was typed
+    /// and only links an account when it matches, rather than asserting a link that may not exist.
+    /// </summary>
+    private (string Actor, int? UserId) OperatorOf(string? operatorName)
+    {
+        var fallback = AuditJournal.ActorOf(_session);
+
+        if (string.IsNullOrWhiteSpace(operatorName))
+        {
+            return fallback;
+        }
+
+        var name = operatorName.Trim();
+        var current = _session.CurrentUser;
+
+        return (name, current is not null && string.Equals(current.UserName, name, StringComparison.OrdinalIgnoreCase)
+            ? current.Id
+            : null);
+    }
 
     private static PurchaseDto Project(Purchase purchase) => new()
     {

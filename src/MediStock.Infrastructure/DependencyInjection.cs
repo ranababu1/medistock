@@ -3,7 +3,10 @@ using MediStock.Application.Common;
 using MediStock.Application.Configuration;
 using MediStock.Application.Dashboard;
 using MediStock.Application.Diagnostics;
+using MediStock.Application.Identity;
+using MediStock.Application.Identity.Authorization;
 using MediStock.Application.Inventory;
+using MediStock.Application.Operations;
 using MediStock.Application.Purchasing;
 using MediStock.Application.Reporting;
 using MediStock.Application.Sales;
@@ -11,7 +14,9 @@ using MediStock.Application.Suppliers;
 using MediStock.Infrastructure.Catalogue;
 using MediStock.Infrastructure.Dashboard;
 using MediStock.Infrastructure.Diagnostics;
+using MediStock.Infrastructure.Identity;
 using MediStock.Infrastructure.Inventory;
+using MediStock.Infrastructure.Operations;
 using MediStock.Infrastructure.Persistence;
 using MediStock.Infrastructure.Persistence.Seeding;
 using MediStock.Infrastructure.Purchasing;
@@ -65,16 +70,34 @@ public static class DependencyInjection
             .CreateDbContext());
 
         services.AddSingleton<IClock, SystemClock>();
-        services.AddScoped<IMedicineCatalog, EfMedicineCatalog>();
-        services.AddScoped<ISupplierCatalog, EfSupplierCatalog>();
-        services.AddScoped<IPurchaseCatalog, EfPurchaseCatalog>();
+
+        // The session is a singleton and is written only by the authentication service, which is the one
+        // place that knows how somebody becomes signed in. Everything else takes IUserSession.
+        services.AddSingleton<UserSession>();
+        services.AddSingleton<IUserSession>(provider => provider.GetRequiredService<UserSession>());
+
+        services.AddSingleton<IPasswordHasher>(provider => new Pbkdf2PasswordHasher(
+            provider.GetRequiredService<MediStockOptions>().PasswordIterations));
+
+        services.AddScoped<IAuthenticationService, EfAuthenticationService>();
+        services.AddScoped<IUserDirectory, EfUserDirectory>();
+        services.AddScoped<IAuditTrail, EfAuditTrail>();
+        services.AddScoped<IBackupService, SqlServerBackupService>();
+
+        // Each catalog is registered wrapped in the permission guard that belongs to its contract, so a screen
+        // cannot reach an unguarded catalog by resolving it a different way. See ADR 0009.
+        services.AddGuardedCatalog<IMedicineCatalog, EfMedicineCatalog>();
+        services.AddGuardedCatalog<ISupplierCatalog, EfSupplierCatalog>();
+        services.AddGuardedCatalog<IPurchaseCatalog, EfPurchaseCatalog>();
+        services.AddGuardedCatalog<ISaleCatalog, EfSaleCatalog>();
+        services.AddGuardedCatalog<ISaleReturnCatalog, EfSaleReturnCatalog>();
+        services.AddGuardedCatalog<IReportQueries, EfReportQueries>();
+        services.AddGuardedCatalog<ICsvExporter, CsvReportExporter>();
+
+        // Reads and exports that carry no permission of their own.
         services.AddScoped<IStockQueries, EfStockQueries>();
-        services.AddScoped<ISaleCatalog, EfSaleCatalog>();
         services.AddScoped<ISalesQueries, EfSalesQueries>();
-        services.AddScoped<ISaleReturnCatalog, EfSaleReturnCatalog>();
         services.AddScoped<IReceiptExporter, TextReceiptExporter>();
-        services.AddScoped<IReportQueries, EfReportQueries>();
-        services.AddScoped<ICsvExporter, CsvReportExporter>();
         services.AddScoped<EfInvoiceNumberAllocator>();
         services.AddScoped<IDashboardQueries, EfDashboardQueries>();
         services.AddScoped<IDatabaseHealthCheck, SqlServerDatabaseHealthCheck>();
@@ -87,8 +110,16 @@ public static class DependencyInjection
     /// Single place that decides how a context talks to SQL Server, so a context obtained from the
     /// factory and one resolved directly behave identically.
     /// </summary>
+    /// <remarks>
+    /// Multiple active result sets is switched off even when the configured connection string asks for it.
+    /// With MARS on, SQL Server refuses savepoints, and EF Core then cannot roll a partly-applied
+    /// <c>SaveChanges</c> back to a clean state inside a transaction: a batch that fails half way leaves the
+    /// rows it managed to write behind. Several operations now write more than one batch per transaction,
+    /// because an audited action stages its audit row and saves it in the same transaction as the thing it
+    /// describes. Entity Framework does not need MARS; it buffers what it reads.
+    /// </remarks>
     private static void ConfigureDatabase(DbContextOptionsBuilder options, string connectionString)
-        => options.UseSqlServer(connectionString, sql =>
+        => options.UseSqlServer(WithoutMultipleActiveResultSets(connectionString), sql =>
         {
             sql.MigrationsAssembly(typeof(MediStockDbContext).Assembly.FullName);
             sql.EnableRetryOnFailure(
@@ -97,6 +128,20 @@ public static class DependencyInjection
                 errorNumbersToAdd: null);
             sql.CommandTimeout(60);
         });
+
+    /// <summary>Clears <c>MultipleActiveResultSets</c> from a connection string, if it is set.</summary>
+    private static string WithoutMultipleActiveResultSets(string connectionString)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString);
+        if (!builder.MultipleActiveResultSets)
+        {
+            return connectionString;
+        }
+
+        builder.MultipleActiveResultSets = false;
+
+        return builder.ConnectionString;
+    }
 
     /// <summary>
     /// Prefers the <c>MEDISTOCK_CONNECTION</c> environment variable, then configuration, so a

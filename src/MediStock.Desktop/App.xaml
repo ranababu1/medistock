@@ -17,6 +17,7 @@
             <conv:ActiveStatusConverter x:Key="ActiveStatus" />
             <conv:EnumTextConverter x:Key="EnumText" />
             <conv:DateOnlyToDateTimeConverter x:Key="DateOnlyToDateTime" />
+            <conv:InstantTextConverter x:Key="InstantText" />
 
             <!-- View-model to view mapping used by the shell's content region. -->
             <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
@@ -45,6 +46,9 @@
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:ReportsViewModel}">
                 <views:ReportsView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:UsersSettingsViewModel}">
+                <views:UsersSettingsView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:PlaceholderViewModel}">
                 <views:PlaceholderView />

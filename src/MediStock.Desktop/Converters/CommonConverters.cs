@@ -69,3 +69,40 @@ public sealed class ActiveStatusConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
+
+/// <summary>
+/// Shows a stored instant on the pharmacy's own clock, which is the clock the receipt already prints.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Instants are stored in UTC. Binding one straight into a grid renders the UTC wall clock, so a sale rung up
+/// at 14:30 in India read 09:00 on the Sales History screen while the invoice beside it said 14:30 — the same
+/// sale, two answers. The receipt exporter has always converted (<c>TextReceiptExporter.Local</c>); this
+/// converter brings the screens in line with it.
+/// </para>
+/// <para>
+/// The zone used is the machine's, which is where a single-PC installation runs and which is therefore the
+/// zone the receipts are printed in. The business date used for daily figures is a separate question and is
+/// answered by <c>IClock</c> from configuration.
+/// </para>
+/// </remarks>
+public sealed class InstantTextConverter : IValueConverter
+{
+    /// <summary>The format used when the binding does not pass one as its parameter.</summary>
+    public const string DefaultFormat = "dd/MM/yyyy HH:mm";
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var format = parameter as string is { Length: > 0 } supplied ? supplied : DefaultFormat;
+
+        return value switch
+        {
+            DateTimeOffset instant => instant.ToLocalTime().ToString(format, CultureInfo.InvariantCulture),
+            DateTime time => time.ToString(format, CultureInfo.InvariantCulture),
+            _ => string.Empty,
+        };
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
