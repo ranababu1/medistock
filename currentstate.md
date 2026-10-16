@@ -6,8 +6,8 @@
 > Read this first when picking the project up. It is written to be honest about what is finished,
 > what is half-finished, and what is known to be broken.
 
-**Snapshot taken:** 2026-10-16 · **Version:** 0.5.0 (unreleased) · **Branch:** `main` ·
-**HEAD:** `7e5dddf` (Milestone 5 is uncommitted working-tree changes on top of it)
+**Snapshot taken:** 2026-10-16 · **Version:** 0.5.0 · **Branch:** `main` ·
+**HEAD:** `d3afcf8` (Milestone 5 complete; tagged `v0.5.0`)
 
 ---
 

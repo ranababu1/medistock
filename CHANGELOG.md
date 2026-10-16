@@ -12,9 +12,11 @@ Security, in that order.
 
 ---
 
-## [Unreleased] — Milestone 5: users, roles, audit and backup
+## [0.5.0] — Milestone 5: users, roles, audit and backup
 
-*In progress. Not yet tagged. Target `0.5.0`.*
+**Commit** `d3afcf8` · **Date** 2026-10-16 · *Add users, roles, permissions, audit trail and backup*
+
+106 files changed, +15,593 / −40.
 
 ### Added
 
