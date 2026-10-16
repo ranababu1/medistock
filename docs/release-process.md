@@ -3,8 +3,8 @@
 How a MediStock version gets from a green working tree to a downloadable artefact on the
 [Releases page](https://github.com/ranababu1/medistock/releases).
 
-For the *version numbers*, see [`plan.md`](../plan.md) §8. For *what changed*, see
-[`CHANGELOG.md`](../CHANGELOG.md).
+For the *version numbers*, see [`plan.md`](plan.md) §8. For *what changed*, see
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

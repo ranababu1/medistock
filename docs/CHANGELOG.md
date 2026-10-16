@@ -16,6 +16,15 @@ Security, in that order.
 
 ### Added
 
+- **Stock-corrections domain — Milestone 4b groundwork** (`92fe8f6`, 2026-10-16) — the
+  `SupplierReturn` aggregate: batches can only go back to the supplier that sold them, recalled
+  and written-off stock is refused, repeated lines against one batch are counted together, and
+  there is deliberately no reversal — a return that went out in error is corrected by receiving
+  the goods again. `MedicineBatch.WriteOffRemainingStock` zeroes a batch's balance and sets its
+  status in one step, so a quarantined batch can finally be disposed of. New `AdjustStock` and
+  `ReturnToSupplier` permissions with the pharmacist and inventory-operator role decisions, three
+  new audit actions (`StockAdjusted`, `StockWrittenOff`, `SupplierReturnRecorded`), the `SRET`
+  number prefix, and ADR 0011. 372 domain tests.
 - **GitHub Actions CI** — `.github/workflows/build.yml`: every push to `main` and every pull
   request builds the solution and runs all 653 tests on a `windows-latest` runner against its SQL
   Server LocalDB; pushing a `v*` tag additionally publishes the self-contained artefact and
@@ -26,6 +35,26 @@ Security, in that order.
 
 - `publish-release.ps1` gained `-SkipTests`, so the CI release job can skip a test suite it has
   already run in its own test job.
+- **Planning context moved into `docs/`** — `plan.md`, `CHANGELOG.md` and `currentstate.md` now
+  live in `docs/` alongside the rest of the written record, so one folder holds everything a
+  contributor or an agent needs for context. `docs/release-process.md` links updated.
+
+### Fixed
+
+- **Code-review findings** (`7d1d4c4`, 2026-10-16) — receipt stock movements are now booked under
+  the operator-supplied received-on date instead of the entry day, so the ledger agrees with the
+  batch and the reports; the return-refund preview prices multi-batch lines with the same
+  clearing-remainder walk the domain uses, so the previewed refund is the refund that gets
+  recorded; an empty cart no longer un-clears the last quote; the "today" date defaults on the
+  sales-history, reports and returns screens are recomputed on every visit instead of being
+  frozen at start-up; and the dashboard counts its low-stock and near-expiry figures directly
+  instead of materialising two 500-row lists per refresh.
+
+### Security
+
+- **Sign-in timing** (`b5d9a55`, 2026-10-16) — the sign-in failure path now compares the supplied
+  password against a per-instance decoy hash built with the production work factor, so a wrong
+  user name costs the same time as a wrong password.
 
 ---
 
